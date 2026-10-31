@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: indexer-worker
+  namespace: indexer
+  labels:
+    app: indexer-worker
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: indexer-worker
+  template:
+    metadata:
+      labels:
+        app: indexer-worker
+    spec:
+      serviceAccountName: indexer
+      containers:
+        - name: worker
+          image: ghcr.io/superindexer/indexer-worker:latest
+          envFrom:
+            - configMapRef:
+                name: indexer-config
+            - secretRef:
+                name: indexer-secrets
+          env:
+            - name: DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: indexer-secrets
+                  key: database-dsn
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: indexer-worker
+  namespace: indexer
+  labels:
+    app: indexer-worker
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: indexer-worker

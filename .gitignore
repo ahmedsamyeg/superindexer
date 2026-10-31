@@ -1,0 +1,6 @@
+.junie/
+build/
+.env.dev
+.env.test
+.env
+frontend/node_modules/

@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: indexer
+  labels:
+    app.kubernetes.io/part-of: indexer
+    app.kubernetes.io/component: infrastructure

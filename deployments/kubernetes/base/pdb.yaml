@@ -1,0 +1,21 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: indexer-api-pdb
+  namespace: indexer
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: indexer-api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: indexer-frontend-pdb
+  namespace: indexer
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: indexer-frontend

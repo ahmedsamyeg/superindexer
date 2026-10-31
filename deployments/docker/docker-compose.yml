@@ -1,0 +1,157 @@
+version: '3.8'
+
+services:
+  # PostgreSQL database
+  postgres:
+    image: postgres:16-alpine
+    container_name: indexer-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: indexer
+      POSTGRES_USER: indexer
+      POSTGRES_PASSWORD: indexer-dev
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U indexer"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - indexer-network
+
+  # API service
+  api:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    container_name: indexer-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8080
+      - DATABASE_DSN=postgres://indexer:indexer-dev@postgres:5432/indexer?sslmode=disable
+      - JWT_SECRET=change-me-in-production
+      - SESSION_SECRET=change-me-in-production
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json
+      - PROMETHEUS_ENABLED=true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - indexer-network
+    volumes:
+      - ./api-logs:/app/logs
+
+  # Worker service
+  worker:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    container_name: indexer-worker
+    restart: unless-stopped
+    command: ["/app/indexer-worker"]
+    environment:
+      - DATABASE_DSN=postgres://indexer:indexer-dev@postgres:5432/indexer?sslmode=disable
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json
+      - NNTP_DEFAULT_MAX_CONNECTIONS=10
+      - NNTP_DEFAULT_TIMEOUT=30s
+      - SPOTNET_DEFAULT_TIMEOUT=30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - indexer-network
+
+  # Migration service
+  migrate:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    container_name: indexer-migrate
+    restart: "no"
+    command: ["/app/indexer-migrate", "up"]
+    environment:
+      - DATABASE_DSN=postgres://indexer:indexer-dev@postgres:5432/indexer?sslmode=disable
+      - LOG_LEVEL=info
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - indexer-network
+
+  # Frontend
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    container_name: indexer-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+    networks:
+      - indexer-network
+
+  # Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: indexer-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+    networks:
+      - indexer-network
+
+  # Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: indexer-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+    networks:
+      - indexer-network
+
+volumes:
+  postgres_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  indexer-network:
+    driver: bridge
