@@ -4,6 +4,7 @@ import (
 	"log/slog"
 
 	"github.com/labstack/echo/v4"
+	"github.com/superindexer/indexer/internal/config"
 	"github.com/superindexer/indexer/internal/http/middleware"
 	"github.com/superindexer/indexer/internal/http/service"
 	"github.com/uptrace/bun"
@@ -28,13 +29,14 @@ type Handlers struct {
 	// Shared dependencies
 	DB    *bun.DB
 	Log   *slog.Logger
+	Cfg   *config.Config
 	AuthService *service.AuthService
 	UserService *service.UserService
 }
 
 // AuthMiddleware returns the auth middleware function.
 func (h *Handlers) AuthMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
-	return middleware.AuthMiddleware()(next)
+	return middleware.AuthMiddleware(h.Cfg.Auth)(next)
 }
 
 // AdminMiddleware returns the admin middleware function.
@@ -43,7 +45,7 @@ func (h *Handlers) AdminMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 }
 
 // NewHandlers creates all handlers with shared dependencies.
-func NewHandlers(db *bun.DB, log *slog.Logger, authService *service.AuthService, userService *service.UserService) *Handlers {
+func NewHandlers(db *bun.DB, log *slog.Logger, cfg *config.Config, authService *service.AuthService, userService *service.UserService) *Handlers {
 	return &Handlers{
 		AuthHandler:          &AuthHandler{AuthService: authService, Log: log},
 		UserHandler:          &UserHandler{Log: log, UserService: userService},
@@ -60,6 +62,7 @@ func NewHandlers(db *bun.DB, log *slog.Logger, authService *service.AuthService,
 		SettingsHandler:      &SettingsHandler{Log: log},
 		DB:    db,
 		Log:   log,
+		Cfg:   cfg,
 		AuthService: authService,
 		UserService: userService,
 	}

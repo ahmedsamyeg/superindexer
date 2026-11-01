@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"time"
@@ -110,6 +112,96 @@ func (s *AuthService) ValidateToken(ctx context.Context, tokenString string) (*a
 	})
 }
 
+// RequestPasswordReset generates a reset token and stores it for the user.
+func (s *AuthService) RequestPasswordReset(ctx context.Context, email string) error {
+	// Find user by email
+	user, err := s.userRepo.GetByEmail(ctx, email)
+	if err != nil {
+		// Don't reveal if the email exists - just return success
+		return nil
+	}
+
+	// Generate a secure password reset token (in a real system, this would be stored in DB with expiration)
+	token, err := GeneratePasswordResetToken()
+	if err != nil {
+		return fmt.Errorf("generate reset token: %w", err)
+	}
+
+	// Set token expiry (e.g., 1 hour from now)
+	expiry := time.Now().Add(1 * time.Hour)
+
+	// Store the token in database (in a real system this would be stored with an expiry)
+	err = s.userRepo.UpdatePasswordResetToken(ctx, user.ID, token, expiry)
+	if err != nil {
+		return fmt.Errorf("store reset token: %w", err)
+	}
+
+	// In a real system, we would:
+	// 1. Send an email with the reset link (e.g., to: https://yoursite.com/reset?token=...)
+	// 2. Log the password reset request
+	// For this phase, we'll just simulate that it was sent successfully
+	
+	return nil
+}
+
+// ConfirmPasswordReset validates the reset token and updates the user's password.
+func (s *AuthService) ConfirmPasswordReset(ctx context.Context, token, newPassword string) error {
+	// Validate the token format
+	if !ValidatePasswordResetToken(token) {
+		return errors.New("invalid reset token")
+	}
+
+	// Find user by reset token
+	user, err := s.userRepo.GetByPasswordResetToken(ctx, token)
+	if err != nil {
+		return errors.New("invalid reset token")
+	}
+
+	// Check if token has expired
+	if user.PasswordResetExpiry == nil || user.PasswordResetExpiry.Before(time.Now()) {
+		return errors.New("reset token has expired")
+	}
+
+	// Hash the new password
+	passwordHash, err := auth.GeneratePasswordHash(newPassword, auth.DefaultPasswordConfig)
+	if err != nil {
+		return fmt.Errorf("hash new password: %w", err)
+	}
+
+	// Update the user's password hash
+	err = s.userRepo.UpdatePasswordHash(ctx, user.ID, passwordHash)
+	if err != nil {
+		return fmt.Errorf("update password: %w", err)
+	}
+
+	// Clear the reset token from the database
+	err = s.userRepo.DeletePasswordResetToken(ctx, user.ID)
+	if err != nil {
+		return fmt.Errorf("clear reset token: %w", err)
+	}
+
+	return nil
+}
+
+// GeneratePasswordResetToken creates a secure random token for password reset.
+func GeneratePasswordResetToken() (string, error) {
+	// In a production system, this would use crypto/rand to generate a secure token
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return "", fmt.Errorf("generate reset token: %w", err)
+	}
+	
+	return base64.URLEncoding.EncodeToString(tokenBytes), nil
+}
+
+// ValidatePasswordResetToken checks if a password reset token is valid.
+func ValidatePasswordResetToken(token string) bool {
+	// In a production system, this would check token expiration and validity
+	// For now, just verify it's a valid base64 string
+	_, err := base64.URLEncoding.DecodeString(token)
+	return err == nil
+}
+
 // UserService handles user management operations.
 type UserService struct {
 	userRepo repositories.UserRepository
@@ -156,6 +248,27 @@ func (s *UserService) GetUserByID(ctx context.Context, id int64) (*models.User, 
 	return s.userRepo.GetByID(ctx, id)
 }
 
+// ListUsers retrieves a paginated list of users.
+func (s *UserService) ListUsers(ctx context.Context, page, perPage int) (*models.PaginatedResult, error) {
+	pagination := repositories.Pagination{
+		Page:    page,
+		PerPage: perPage,
+	}
+
+	result, err := s.userRepo.List(ctx, pagination)
+	if err != nil {
+		return nil, fmt.Errorf("list users: %w", err)
+	}
+
+	return &models.PaginatedResult{
+		Data:       result.Data,
+		Total:      result.Total,
+		Page:       result.Page,
+		PerPage:    result.PerPage,
+		TotalPages: result.TotalPages,
+	}, nil
+}
+
 // UpdateUser updates a user's fields.
 func (s *UserService) UpdateUser(ctx context.Context, id int64, username, email, password, role *string) (*models.User, error) {
 	user, err := s.userRepo.GetByID(ctx, id)
@@ -200,17 +313,10 @@ func (s *UserService) ToggleUserActive(ctx context.Context, id int64) (*models.U
 	}
 
 	user.IsActive = !user.IsActive
+
 	if err := s.userRepo.Update(ctx, user); err != nil {
-		return nil, fmt.Errorf("toggle active: %w", err)
+		return nil, fmt.Errorf("toggle user active: %w", err)
 	}
 
 	return user, nil
-}
-
-// ListUsers returns a paginated list of users.
-func (s *UserService) ListUsers(ctx context.Context, page, perPage int) (*repositories.PaginatedResult, error) {
-	return s.userRepo.List(ctx, repositories.Pagination{
-		Page:    page,
-		PerPage: perPage,
-	})
 }

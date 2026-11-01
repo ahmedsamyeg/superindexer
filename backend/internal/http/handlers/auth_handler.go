@@ -29,6 +29,17 @@ type RegisterRequest struct {
 	Password string `json:"password" validate:"required,min=8"`
 }
 
+// PasswordResetRequest represents a password reset request body.
+type PasswordResetRequest struct {
+	Email string `json:"email" validate:"required,email"`
+}
+
+// PasswordResetConfirmRequest represents a password reset confirmation request body.
+type PasswordResetConfirmRequest struct {
+	Token    string `json:"token" validate:"required"`
+	Password string `json:"password" validate:"required,min=8"`
+}
+
 // LoginResponse represents a login response.
 type LoginResponse struct {
 	Token  string `json:"token"`
@@ -117,6 +128,18 @@ func (h *AuthHandler) GetMe(c echo.Context) error {
 
 // RequestPasswordReset handles password reset requests.
 func (h *AuthHandler) RequestPasswordReset(c echo.Context) error {
+	var req PasswordResetRequest
+	if err := validator.BindAndValidate(c, &req); err != nil {
+		return err
+	}
+
+	err := h.AuthService.RequestPasswordReset(c.Request().Context(), req.Email)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to process password reset request")
+	}
+
+	// In a real implementation, we would send an email with the reset link
+	// For now, we'll just return success to indicate the process started
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"message": "if the email exists, a reset link has been sent",
 	})
@@ -124,6 +147,16 @@ func (h *AuthHandler) RequestPasswordReset(c echo.Context) error {
 
 // ConfirmPasswordReset handles password reset confirmation.
 func (h *AuthHandler) ConfirmPasswordReset(c echo.Context) error {
+	var req PasswordResetConfirmRequest
+	if err := validator.BindAndValidate(c, &req); err != nil {
+		return err
+	}
+
+	err := h.AuthService.ConfirmPasswordReset(c.Request().Context(), req.Token, req.Password)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"message": "password reset successfully",
 	})

@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/superindexer/indexer/internal/database/models"
 	"github.com/uptrace/bun"
@@ -19,6 +20,10 @@ type UserRepository interface {
 	List(ctx context.Context, pagination Pagination) (*PaginatedResult, error)
 	Delete(ctx context.Context, id int64) error
 	Count(ctx context.Context) (int64, error)
+	// Password reset related methods
+	GetByPasswordResetToken(ctx context.Context, token string) (*models.User, error)
+	UpdatePasswordResetToken(ctx context.Context, id int64, token string, expiry time.Time) error
+	DeletePasswordResetToken(ctx context.Context, id int64) error
 }
 
 // paginatedResult holds pagination parameters.
@@ -114,6 +119,38 @@ func (r *userRepository) UpdatePasswordHash(ctx context.Context, id int64, hash 
 	_, err := r.db.NewUpdate().
 		Model(&models.User{}).
 		Set("password_hash = ?", hash).
+		Where("id = ?", id).
+		Exec(ctx)
+	return err
+}
+
+// GetByPasswordResetToken retrieves a user by password reset token.
+func (r *userRepository) GetByPasswordResetToken(ctx context.Context, token string) (*models.User, error) {
+	user := &models.User{}
+	err := r.db.NewSelect().Model(user).
+		Where("password_reset_token = ?", token).
+		Scan(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return user, nil
+}
+
+// UpdatePasswordResetToken updates the password reset token and its expiry for a user.
+func (r *userRepository) UpdatePasswordResetToken(ctx context.Context, id int64, token string, expiry time.Time) error {
+	_, err := r.db.NewUpdate().
+		Model(&models.User{}).
+		Set("password_reset_token = ?, password_reset_expiry = ?", token, expiry).
+		Where("id = ?", id).
+		Exec(ctx)
+	return err
+}
+
+// DeletePasswordResetToken removes the password reset token from a user.
+func (r *userRepository) DeletePasswordResetToken(ctx context.Context, id int64) error {
+	_, err := r.db.NewUpdate().
+		Model(&models.User{}).
+		Set("password_reset_token = ?, password_reset_expiry = ?", nil, nil).
 		Where("id = ?", id).
 		Exec(ctx)
 	return err
