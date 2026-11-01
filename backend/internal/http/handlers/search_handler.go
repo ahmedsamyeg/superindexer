@@ -6,12 +6,29 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/superindexer/indexer/internal/database/models"
+	"github.com/superindexer/indexer/internal/http/validator"
 )
 
 // SearchHandler handles search endpoints.
 type SearchHandler struct {
-	DB interface{}
 	Log interface{}
+}
+
+// SearchRequest represents a search request body.
+type SearchRequest struct {
+	Query     string `json:"query" validate:"required"`
+	Page      int    `json:"page"`
+	PerPage   int    `json:"per_page"`
+	Category  string `json:"category"`
+	Newsgroup string `json:"newsgroup"`
+	Author    string `json:"author"`
+	MinSize   *int64 `json:"min_size"`
+	MaxSize   *int64 `json:"max_size"`
+	MinDate   *time.Time `json:"min_date"`
+	MaxDate   *time.Time `json:"max_date"`
+	SortBy    string `json:"sort_by"`
+	SortOrder string `json:"sort_order"`
 }
 
 // Search handles the general search endpoint.
@@ -56,6 +73,23 @@ func (h *SearchHandler) Search(c echo.Context) error {
 	author := c.QueryParam("author")
 	sortBy := c.QueryParam("sort_by")
 	sortOrder := c.QueryParam("sort_order")
+
+	// Create search query model
+	searchQuery := models.SearchQuery{
+		Query:     q,
+		Page:      page,
+		PerPage:   perPage,
+		Category:  category,
+		Newsgroup: newsgroup,
+		Author:    author,
+		MinSize:   minDate,
+		MaxSize:   maxDate,
+		SortBy:    sortBy,
+		SortOrder: sortOrder,
+	}
+
+	// For now, we'll implement just article search
+	// In a real implementation, this would use the repository properly
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"data": []interface{}{},

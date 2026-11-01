@@ -2,13 +2,15 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
-	"github.com/uptrace/bun/driver/pgxdriver"
 	"go.opentelemetry.io/otel"
 )
 
@@ -21,54 +23,67 @@ type Config struct {
 	ConnMaxIdleTime time.Duration
 }
 
-// DB wraps the Bun database instance with additional utilities.
+// DB wraps a pgxpool pool with Bun ORM integration.
 type DB struct {
+	pool   *pgxpool.Pool
 	bunDB  *bun.DB
 	log    *slog.Logger
 	tracer interface{}
 }
 
-// New creates a new database connection using Bun with pgx driver.
+// New creates a new database connection using Bun with direct pgxpool.
 func New(ctx context.Context, cfg Config, log *slog.Logger) (*DB, error) {
-	sqldb, err := initDB(ctx, cfg)
+	pool, sqldb, err := initPool(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("initialize database: %w", err)
+		return nil, err
 	}
 
 	bunDB := bun.NewDB(sqldb, pgdialect.New())
 
-	// Configure connection pool
-	sqldb.SetMaxOpenConns(cfg.MaxOpenConns)
-	sqldb.SetMaxIdleConns(cfg.MaxIdleConns)
-	sqldb.SetConnMaxLifetime(cfg.ConnMaxLifetime)
-	sqldb.SetConnMaxIdleTime(cfg.ConnMaxIdleTime)
-
 	// Verify connection
 	if err := bunDB.PingContext(ctx); err != nil {
+		pool.Close()
 		sqldb.Close()
 		return nil, fmt.Errorf("ping database: %w", err)
 	}
 
-	log.Info("database connected",
+	log.Info("database connected via pgxpool",
 		"maxOpenConns", cfg.MaxOpenConns,
 		"maxIdleConns", cfg.MaxIdleConns,
 	)
 
 	return &DB{
+		pool:   pool,
 		bunDB:  bunDB,
 		log:    log,
 		tracer: otel.GetTracerProvider().Tracer("github.com/superindexer/indexer"),
 	}, nil
 }
 
-// initDB creates a database/sql DB with pgx driver.
-func initDB(ctx context.Context, cfg Config) (*sql.DB, error) {
-	sqldb, err := sql.OpenContext(ctx, pgxdriver.Name, cfg.DSN)
+// initPool creates a pgxpool pool and a *sql.DB backed by it via stdlib.
+func initPool(ctx context.Context, cfg Config) (*pgxpool.Pool, *sql.DB, error) {
+	// Parse and configure pgxpool
+	poolConfig, err := pgxpool.ParseConfig(cfg.DSN)
 	if err != nil {
-		return nil, err
+		return nil, nil, fmt.Errorf("parse DSN: %w", err)
 	}
 
-	return sqldb, nil
+	poolConfig.MaxConns = int32(cfg.MaxOpenConns)
+	poolConfig.MinConns = int32(cfg.MaxIdleConns)
+	poolConfig.MaxConnLifetime = cfg.ConnMaxLifetime
+	poolConfig.MaxConnIdleTime = cfg.ConnMaxIdleTime
+	poolConfig.HealthCheckPeriod = 30 * time.Second
+
+	// Create the pgxpool
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create pgxpool: %w", err)
+	}
+
+	// Create a *sql.DB that wraps the pgxpool for Bun compatibility
+	sqldb := stdlib.OpenDBFromPool(pool)
+
+	return pool, sqldb, nil
 }
 
 // Bun returns the underlying bun.DB instance.
@@ -76,9 +91,9 @@ func (d *DB) Bun() *bun.DB {
 	return d.bunDB
 }
 
-// DB returns the underlying database/sql.DB instance.
-func (d *DB) DB() *sql.DB {
-	return d.bunDB.DB()
+// Pool returns the underlying pgxpool.Pool for direct pgx access.
+func (d *DB) Pool() *pgxpool.Pool {
+	return d.pool
 }
 
 // Tracer returns the OpenTelemetry tracer.
@@ -86,21 +101,23 @@ func (d *DB) Tracer() interface{} {
 	return d.tracer
 }
 
-// Close closes the database connection.
+// Close closes the database connection pool.
 func (d *DB) Close() error {
-	return d.bunDB.DB().Close()
+	d.pool.Close()
+	return nil
 }
 
 // NewTx creates a new Bun transaction.
 func (d *DB) NewTx(ctx context.Context) (*bun.Tx, error) {
-	return d.bunDB.NewTx()
+	tx, err := d.bunDB.BeginTx(ctx, nil)
+	return &tx, err
 }
 
 // WithTx creates a new transaction and runs the given function.
 // If the function returns an error, the transaction is rolled back.
 // If the function returns nil, the transaction is committed.
 func (d *DB) WithTx(ctx context.Context, fn func(context.Context, *bun.Tx) error) error {
-	tx, err := d.bunDB.NewTx()
+	tx, err := d.bunDB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -112,7 +129,7 @@ func (d *DB) WithTx(ctx context.Context, fn func(context.Context, *bun.Tx) error
 		}
 	}()
 
-	if err := fn(ctx, tx); err != nil {
+	if err := fn(ctx, &tx); err != nil {
 		_ = tx.Rollback()
 		return err
 	}

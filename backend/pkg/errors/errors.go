@@ -75,7 +75,6 @@ func IsAppError(err error) bool {
 
 // UnwrapAppError extracts the AppError from a wrapped error.
 func UnwrapAppError(err error) *AppError {
-	var appErr *AppError
 	if err == nil {
 		return nil
 	}

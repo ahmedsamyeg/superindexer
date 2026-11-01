@@ -12,7 +12,7 @@ func New(level string, format string) *slog.Logger {
 	case "debug":
 		opts = slog.HandlerOptions{Level: slog.LevelDebug}
 	case "warn":
-		opts = slog.HandlerOptions{Level: Warn}
+		opts = slog.HandlerOptions{Level: slog.LevelWarn}
 	case "error":
 		opts = slog.HandlerOptions{Level: slog.LevelError}
 	default:

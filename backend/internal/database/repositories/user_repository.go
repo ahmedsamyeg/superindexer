@@ -2,7 +2,6 @@ package repositories
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/superindexer/indexer/internal/database/models"
@@ -133,8 +132,8 @@ func (r *userRepository) List(ctx context.Context, pagination Pagination) (*Pagi
 
 	// Apply pagination
 	query = query.
-		Offset(pagination.Offset()).
-		Limit(pagination.PerPage).
+		Offset(int64((pagination.Page - 1) * pagination.PerPage)).
+		Limit(int64(pagination.PerPage)).
 		Order("created_at DESC")
 
 	if err := query.Scan(ctx); err != nil {

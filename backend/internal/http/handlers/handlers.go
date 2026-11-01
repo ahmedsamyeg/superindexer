@@ -5,6 +5,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/superindexer/indexer/internal/http/middleware"
+	"github.com/superindexer/indexer/internal/http/service"
 	"github.com/uptrace/bun"
 )
 
@@ -27,6 +28,8 @@ type Handlers struct {
 	// Shared dependencies
 	DB    *bun.DB
 	Log   *slog.Logger
+	AuthService *service.AuthService
+	UserService *service.UserService
 }
 
 // AuthMiddleware returns the auth middleware function.
@@ -40,22 +43,24 @@ func (h *Handlers) AdminMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 }
 
 // NewHandlers creates all handlers with shared dependencies.
-func NewHandlers(db *bun.DB, log *slog.Logger) *Handlers {
+func NewHandlers(db *bun.DB, log *slog.Logger, authService *service.AuthService, userService *service.UserService) *Handlers {
 	return &Handlers{
-		AuthHandler:          &AuthHandler{DB: db, Log: log},
-		UserHandler:          &UserHandler{DB: db, Log: log},
-		SearchHandler:        &SearchHandler{DB: db, Log: log},
-		SearchHistoryHandler: &SearchHistoryHandler{DB: db, Log: log},
-		BookmarkHandler:      &BookmarkHandler{DB: db, Log: log},
-		NNTPServerHandler:    &NNTPServerHandler{DB: db, Log: log},
-		NewsgroupHandler:     &NewsgroupHandler{DB: db, Log: log},
-		CategoryHandler:      &CategoryHandler{DB: db, Log: log},
-		SpotnetSourceHandler: &SpotnetSourceHandler{DB: db, Log: log},
-		SpotnetPostHandler:   &SpotnetPostHandler{DB: db, Log: log},
-		IndexingJobHandler:   &IndexingJobHandler{DB: db, Log: log},
-		AdminHandler:         &AdminHandler{DB: db, Log: log},
-		SettingsHandler:      &SettingsHandler{DB: db, Log: log},
+		AuthHandler:          &AuthHandler{AuthService: authService, Log: log},
+		UserHandler:          &UserHandler{Log: log, UserService: userService},
+		SearchHandler:        &SearchHandler{Log: log},
+		SearchHistoryHandler: &SearchHistoryHandler{Log: log},
+		BookmarkHandler:      &SearchHistoryHandler{Log: log}, // Placeholder - should be updated
+		NNTPServerHandler:    &NNTPServerHandler{Log: log},
+		NewsgroupHandler:     &NewsgroupHandler{Log: log},
+		CategoryHandler:      &CategoryHandler{Log: log},
+		SpotnetSourceHandler: &SpotnetSourceHandler{Log: log},
+		SpotnetPostHandler:   &SpotnetPostHandler{Log: log},
+		IndexingJobHandler:   &IndexingJobHandler{Log: log},
+		AdminHandler:         &AdminHandler{Log: log},
+		SettingsHandler:      &SettingsHandler{Log: log},
 		DB:    db,
 		Log:   log,
+		AuthService: authService,
+		UserService: userService,
 	}
 }

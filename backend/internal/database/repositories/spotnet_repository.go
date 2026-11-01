@@ -196,8 +196,8 @@ func (r *spotnetPostRepository) ListBySource(ctx context.Context, sourceID int64
 	}
 
 	query = query.
-		Offset(pagination.Offset()).
-		Limit(pagination.PerPage).
+		Offset(int64((pagination.Page - 1) * pagination.PerPage)).
+		Limit(int64(pagination.PerPage)).
 		Order("posted_at DESC")
 
 	if err := query.Scan(ctx); err != nil {

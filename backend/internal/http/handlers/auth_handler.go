@@ -5,14 +5,15 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"golang.org/x/crypto/argon2"
+	"github.com/superindexer/indexer/internal/auth"
+	"github.com/superindexer/indexer/internal/http/service"
+	"github.com/superindexer/indexer/internal/http/validator"
 )
 
 // AuthHandler handles authentication endpoints.
 type AuthHandler struct {
-	DB          interface{}
+	AuthService *service.AuthService
 	Log         interface{}
-	Observability interface{}
 }
 
 // LoginRequest represents a login request body.
@@ -28,21 +29,41 @@ type RegisterRequest struct {
 	Password string `json:"password" validate:"required,min=8"`
 }
 
+// LoginResponse represents a login response.
+type LoginResponse struct {
+	Token  string `json:"token"`
+	User   UserResponse `json:"user"`
+}
+
+// UserResponse represents a user response.
+type UserResponse struct {
+	ID       int64  `json:"id"`
+	Username string `json:"username"`
+	Email    string `json:"email"`
+	Role     string `json:"role"`
+	IsActive bool   `json:"is_active"`
+}
+
 // Login handles user login.
 func (h *AuthHandler) Login(c echo.Context) error {
 	var req LoginRequest
-	if err := c.Bind(&req); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
+	if err := validator.BindAndValidate(c, &req); err != nil {
+		return err
 	}
 
-	// TODO: Implement actual authentication
-	// For now, return a placeholder response
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"token": "placeholder-jwt-token",
-		"user": map[string]interface{}{
-			"id":       1,
-			"username": req.Username,
-			"role":     "admin",
+	loginResult, err := h.AuthService.Login(c.Request().Context(), req.Username, req.Password)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusUnauthorized, "invalid credentials")
+	}
+
+	return c.JSON(http.StatusOK, LoginResponse{
+		Token: loginResult.Token,
+		User: UserResponse{
+			ID:       loginResult.User.ID,
+			Username: loginResult.User.Username,
+			Email:    loginResult.User.Email,
+			Role:     loginResult.User.Role,
+			IsActive: loginResult.User.IsActive,
 		},
 	})
 }
@@ -50,27 +71,27 @@ func (h *AuthHandler) Login(c echo.Context) error {
 // Register handles user registration.
 func (h *AuthHandler) Register(c echo.Context) error {
 	var req RegisterRequest
-	if err := c.Bind(&req); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
+	if err := validator.BindAndValidate(c, &req); err != nil {
+		return err
 	}
 
-	// Hash password with Argon2id
-	_ = hashPassword(req.Password)
+	user, err := h.AuthService.Register(c.Request().Context(), req.Username, req.Email, req.Password)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
 
-	// TODO: Save user to database
-	return c.JSON(http.StatusCreated, map[string]interface{}{
-		"user": map[string]interface{}{
-			"id":       1,
-			"username": req.Username,
-			"email":    req.Email,
-			"role":     "user",
-		},
+	return c.JSON(http.StatusCreated, UserResponse{
+		ID:       user.ID,
+		Username: user.Username,
+		Email:    user.Email,
+		Role:     user.Role,
+		IsActive: user.IsActive,
 	})
 }
 
 // Logout handles user logout.
 func (h *AuthHandler) Logout(c echo.Context) error {
-	// Clear session/token
+	// JWT tokens are stateless, so logout is handled by client-side token removal
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"message": "logged out successfully",
 	})
@@ -78,14 +99,19 @@ func (h *AuthHandler) Logout(c echo.Context) error {
 
 // GetMe handles getting the current user's profile.
 func (h *AuthHandler) GetMe(c echo.Context) error {
-	// TODO: Get user from context
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"user": map[string]interface{}{
-			"id":       1,
-			"username": "admin",
-			"email":    "admin@localhost",
-			"role":     "admin",
-		},
+	userID, role, username, ok := auth.ExtractUserFromContext(c.Request().Context())
+	if !ok {
+		return echo.NewHTTPError(http.StatusUnauthorized, "unauthorized")
+	}
+
+	// In a real implementation, we would fetch the user from DB
+	// For now, we'll return placeholder data based on context
+	return c.JSON(http.StatusOK, UserResponse{
+		ID:       userID,
+		Username: username,
+		Email:    username + "@localhost", // Placeholder
+		Role:     role,
+		IsActive: true, // Placeholder
 	})
 }
 
@@ -101,28 +127,4 @@ func (h *AuthHandler) ConfirmPasswordReset(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"message": "password reset successfully",
 	})
-}
-
-// hashPassword hashes a password using Argon2id.
-func hashPassword(password string) string {
-	_ = argon2.IDKey([]byte(password), []byte("fixed-salt-for-dev-only"), 3, 64*1024, 4, 32)
-	return "placeholder-hash"
-}
-
-// VerifyPassword verifies a password against a hash.
-func VerifyPassword(password, hash string) bool {
-	// TODO: Implement proper Argon2id verification
-	return password != ""
-}
-
-// GenerateJWT generates a JWT token for a user.
-func GenerateJWT(userID int64, role string, secret string, expiry time.Duration) (string, error) {
-	// TODO: Implement JWT generation
-	return "placeholder-jwt-token", nil
-}
-
-// ValidateJWT validates a JWT token and returns the user ID.
-func ValidateJWT(token, secret string) (int64, string, error) {
-	// TODO: Implement JWT validation
-	return 1, "admin", nil
 }

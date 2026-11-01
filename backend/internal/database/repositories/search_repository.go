@@ -41,7 +41,7 @@ func (r *searchRepository) SearchArticles(ctx context.Context, query models.Sear
 		       ts_rank_cd(a.search_vector, query) AS rank
 		FROM articles a
 		JOIN newsgroups n ON a.newsgroup_id = n.id,
-		     websearch_to_tsquery('simple', ?) AS query
+		     websearch_to_tsquery('simple', $1) AS query
 		WHERE a.search_vector @@ query
 	`
 
@@ -50,37 +50,37 @@ func (r *searchRepository) SearchArticles(ctx context.Context, query models.Sear
 	args := []interface{}{query.Query}
 
 	if query.Category != "" {
-		whereClauses = append(whereClauses, "a.normalized_metadata->>'category' = ?")
+		whereClauses = append(whereClauses, "a.normalized_metadata->>'category' = $"+fmt.Sprintf("%d", len(args)+1))
 		args = append(args, query.Category)
 	}
 
 	if query.Newsgroup != "" {
-		whereClauses = append(whereClauses, "n.name = ?")
+		whereClauses = append(whereClauses, "n.name = $"+fmt.Sprintf("%d", len(args)+1))
 		args = append(args, query.Newsgroup)
 	}
 
 	if query.Author != "" {
-		whereClauses = append(whereClauses, "a.author ILIKE ?")
+		whereClauses = append(whereClauses, "a.author ILIKE $"+fmt.Sprintf("%d", len(args)+1))
 		args = append(args, "%"+query.Author+"%")
 	}
 
 	if query.MinSize != nil {
-		whereClauses = append(whereClauses, "a.article_size >= ?")
+		whereClauses = append(whereClauses, "a.article_size >= $"+fmt.Sprintf("%d", len(args)+1))
 		args = append(args, *query.MinSize)
 	}
 
 	if query.MaxSize != nil {
-		whereClauses = append(whereClauses, "a.article_size <= ?")
+		whereClauses = append(whereClauses, "a.article_size <= $"+fmt.Sprintf("%d", len(args)+1))
 		args = append(args, *query.MaxSize)
 	}
 
 	if query.MinDate != nil {
-		whereClauses = append(whereClauses, "a.posted_at >= ?")
+		whereClauses = append(whereClauses, "a.posted_at >= $"+fmt.Sprintf("%d", len(args)+1))
 		args = append(args, *query.MinDate)
 	}
 
 	if query.MaxDate != nil {
-		whereClauses = append(whereClauses, "a.posted_at <= ?")
+		whereClauses = append(whereClauses, "a.posted_at <= $"+fmt.Sprintf("%d", len(args)+1))
 		args = append(args, *query.MaxDate)
 	}
 
@@ -112,7 +112,7 @@ func (r *searchRepository) SearchArticles(ctx context.Context, query models.Sear
 	countSQL = strings.Split(countSQL, "ORDER BY")[0]
 
 	var total int64
-	err := r.db.Raw(countSQL, args...).Scan(ctx, &total)
+	err := r.db.NewRaw(countSQL, args...).Scan(ctx, &total)
 	if err != nil {
 		return nil, fmt.Errorf("count search results: %w", err)
 	}
@@ -121,11 +121,17 @@ func (r *searchRepository) SearchArticles(ctx context.Context, query models.Sear
 	pagedSQL := baseSQL + fmt.Sprintf(" LIMIT %d OFFSET %d", pagination.PerPage, pagination.Offset())
 
 	var articles []models.Article
-	if err := r.db.Raw(pagedSQL, args...).Scan(ctx, &articles); err != nil {
+	if err := r.db.NewRaw(pagedSQL, args...).Scan(ctx, &articles); err != nil {
 		return nil, fmt.Errorf("search articles: %w", err)
 	}
 
-	return models.NewPaginatedResult(articles, total, int64(pagination.Page), int64(pagination.PerPage)), nil
+	return &PaginatedResult{
+		Data:       articles,
+		Total:      total,
+		Page:       int(pagination.Page),
+		PerPage:    int(pagination.PerPage),
+		TotalPages: totalPages(total, int64(pagination.PerPage)),
+	}, nil
 }
 
 // SearchSpotnetPosts searches spotnet posts using PostgreSQL full-text search.
@@ -141,7 +147,7 @@ func (r *searchRepository) SearchSpotnetPosts(ctx context.Context, query models.
 		FROM spotnet_posts sp
 		LEFT JOIN categories c ON sp.category_id = c.id
 		LEFT JOIN spotnet_sources src ON sp.source_id = src.id,
-		     websearch_to_tsquery('simple', ?) AS query
+		     websearch_to_tsquery('simple', $1) AS query
 		WHERE sp.search_vector @@ query
 	`
 
@@ -149,37 +155,37 @@ func (r *searchRepository) SearchSpotnetPosts(ctx context.Context, query models.
 	args := []interface{}{query.Query}
 
 	if query.Category != "" {
-		whereClauses = append(whereClauses, "c.slug = ?")
+		whereClauses = append(whereClauses, "c.slug = $"+fmt.Sprintf("%d", len(args)+1))
 		args = append(args, query.Category)
 	}
 
 	if query.SourceType != "" {
-		whereClauses = append(whereClauses, "src.source_type = ?")
+		whereClauses = append(whereClauses, "src.source_type = $"+fmt.Sprintf("%d", len(args)+1))
 		args = append(args, query.SourceType)
 	}
 
 	if query.Author != "" {
-		whereClauses = append(whereClauses, "sp.author ILIKE ?")
+		whereClauses = append(whereClauses, "sp.author ILIKE $"+fmt.Sprintf("%d", len(args)+1))
 		args = append(args, "%"+query.Author+"%")
 	}
 
 	if query.MinSize != nil {
-		whereClauses = append(whereClauses, "sp.raw_metadata->>'size'::text >= ?")
+		whereClauses = append(whereClauses, "sp.raw_metadata->>'size'::text >= $"+fmt.Sprintf("%d", len(args)+1))
 		args = append(args, *query.MinSize)
 	}
 
 	if query.MaxSize != nil {
-		whereClauses = append(whereClauses, "sp.raw_metadata->>'size'::text <= ?")
+		whereClauses = append(whereClauses, "sp.raw_metadata->>'size'::text <= $"+fmt.Sprintf("%d", len(args)+1))
 		args = append(args, *query.MaxSize)
 	}
 
 	if query.MinDate != nil {
-		whereClauses = append(whereClauses, "sp.posted_at >= ?")
+		whereClauses = append(whereClauses, "sp.posted_at >= $"+fmt.Sprintf("%d", len(args)+1))
 		args = append(args, *query.MinDate)
 	}
 
 	if query.MaxDate != nil {
-		whereClauses = append(whereClauses, "sp.posted_at <= ?")
+		whereClauses = append(whereClauses, "sp.posted_at <= $"+fmt.Sprintf("%d", len(args)+1))
 		args = append(args, *query.MaxDate)
 	}
 
@@ -209,7 +215,7 @@ func (r *searchRepository) SearchSpotnetPosts(ctx context.Context, query models.
 	countSQL = strings.Split(countSQL, "ORDER BY")[0]
 
 	var total int64
-	err := r.db.Raw(countSQL, args...).Scan(ctx, &total)
+	err := r.db.NewRaw(countSQL, args...).Scan(ctx, &total)
 	if err != nil {
 		return nil, fmt.Errorf("count search results: %w", err)
 	}
@@ -217,11 +223,17 @@ func (r *searchRepository) SearchSpotnetPosts(ctx context.Context, query models.
 	pagedSQL := baseSQL + fmt.Sprintf(" LIMIT %d OFFSET %d", pagination.PerPage, pagination.Offset())
 
 	var posts []models.SpotnetPost
-	if err := r.db.Raw(pagedSQL, args...).Scan(ctx, &posts); err != nil {
+	if err := r.db.NewRaw(pagedSQL, args...).Scan(ctx, &posts); err != nil {
 		return nil, fmt.Errorf("search spotnet posts: %w", err)
 	}
 
-	return models.NewPaginatedResult(posts, total, int64(pagination.Page), int64(pagination.PerPage)), nil
+	return &PaginatedResult{
+		Data:       posts,
+		Total:      total,
+		Page:       int(pagination.Page),
+		PerPage:    int(pagination.PerPage),
+		TotalPages: totalPages(total, int64(pagination.PerPage)),
+	}, nil
 }
 
 // SearchAll searches both articles and spotnet posts.
@@ -242,15 +254,21 @@ func (r *searchRepository) SearchArticlesByCategory(ctx context.Context, categor
 	}
 
 	query = query.
-		Offset(pagination.Offset()).
-		Limit(pagination.PerPage).
+		Offset(int64((pagination.Page - 1) * pagination.PerPage)).
+		Limit(int64(pagination.PerPage)).
 		Order("posted_at DESC")
 
 	if err := query.Scan(ctx); err != nil {
 		return nil, err
 	}
 
-	return newUserPaginatedResult(articles, total, int64(pagination.Page), int64(pagination.PerPage)), nil
+	return &PaginatedResult{
+		Data:       articles,
+		Total:      total,
+		Page:       pagination.Page,
+		PerPage:    pagination.PerPage,
+		TotalPages: totalPages(total, int64(pagination.PerPage)),
+	}, nil
 }
 
 // GetFacets returns facet counts for search results.
@@ -258,15 +276,16 @@ func (r *searchRepository) GetFacets(ctx context.Context, query models.SearchQue
 	facets := make(map[string]int64)
 
 	// Count by newsgroup
-	var newsgroupCounts []struct {
-		Name string
-		Count int64
+	type newsgroupCount struct {
+		Name  string `bun:"name"`
+		Count int64  `bun:"count"`
 	}
+	var newsgroupCounts []newsgroupCount
 	err := r.db.NewSelect().
-		Column("n.name, count(*) as count")
+		Column("n.name, count(*) as count").
 		Table("articles a").
-		JOIN("JOIN newsgroups n ON a.newsgroup_id = n.id").
-		Where("a.search_vector @@ websearch_to_tsquery('simple', ?)", query.Query).
+		Join("JOIN newsgroups n ON a.newsgroup_id = n.id").
+		Where("a.search_vector @@ websearch_to_tsquery('simple', $1)", query.Query).
 		Group("n.name").
 		Scan(ctx, &newsgroupCounts)
 	if err != nil {
@@ -278,21 +297,31 @@ func (r *searchRepository) GetFacets(ctx context.Context, query models.SearchQue
 	}
 
 	// Count by date range
-	var dateRange struct {
-		MinDate time.Time
-		MaxDate time.Time
+	type dateRange struct {
+		MinDate time.Time `bun:"min_date"`
+		MaxDate time.Time `bun:"max_date"`
 	}
+	var dr dateRange
 	err = r.db.NewSelect().
 		Column("min(posted_at) as min_date, max(posted_at) as max_date").
 		Model(&models.Article{}).
-		Where("search_vector @@ websearch_to_tsquery('simple', ?)", query.Query).
-		Scan(ctx, &dateRange)
+		Where("search_vector @@ websearch_to_tsquery('simple', $1)", query.Query).
+		Scan(ctx, &dr)
 	if err == nil {
-		facets["date_min"] = dateRange.MinDate.Unix()
-		facets["date_max"] = dateRange.MaxDate.Unix()
+		facets["date_min"] = dr.MinDate.Unix()
+		facets["date_max"] = dr.MaxDate.Unix()
 	}
 
 	return facets, nil
+}
+
+// totalPages calculates total pages from total items and perPage.
+func totalPages(total, perPage int64) int {
+	pages := total / perPage
+	if total%perPage > 0 {
+		pages++
+	}
+	return int(pages)
 }
 
 // Ensure interface compliance

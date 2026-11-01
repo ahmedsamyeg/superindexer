@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
+	"github.com/superindexer/indexer/internal/auth"
 )
 
 // contextKey is a custom type for context keys to avoid collisions.
@@ -15,6 +16,7 @@ const (
 	requestIDKey contextKey = "request_id"
 	userIDKey    contextKey = "user_id"
 	userRoleKey  contextKey = "user_role"
+	ContextKeyUsername contextKey = "username"
 )
 
 // RequestID generates a unique request ID and adds it to the context and response headers.
@@ -53,12 +55,23 @@ func AuthMiddleware() echo.MiddlewareFunc {
 				return echo.NewHTTPError(401, "invalid authorization header format")
 			}
 
-			_ = parts[1]
+			tokenString := parts[1]
 
-			// TODO: Validate JWT token and extract user info
-			// For now, set a placeholder user ID
-			ctx := context.WithValue(c.Request().Context(), userIDKey, int64(1))
-			ctx = context.WithValue(ctx, userRoleKey, "admin")
+			// Validate JWT token and extract user info
+			// For now, we'll hardcode the secret - in production this would come from config
+			claims, err := auth.ValidateToken(tokenString, auth.JWTConfig{
+				Secret: []byte("superindexer-secret-key"), // This should come from config
+				Issuer: "superindexer",
+				Expiry: 3600, // 1 hour
+			})
+			if err != nil {
+				return echo.NewHTTPError(401, "invalid token: "+err.Error())
+			}
+
+			// Store user info in context
+			ctx := context.WithValue(c.Request().Context(), userIDKey, claims.UserID)
+			ctx = context.WithValue(ctx, userRoleKey, claims.Role)
+			ctx = context.WithValue(ctx, ContextKeyUsername, claims.Username)
 			c.SetRequest(c.Request().WithContext(ctx))
 
 			return next(c)
@@ -99,6 +112,14 @@ func GetUserID(ctx context.Context) int64 {
 func GetUserRole(ctx context.Context) string {
 	if role, ok := ctx.Value(userRoleKey).(string); ok {
 		return role
+	}
+	return ""
+}
+
+// GetUsername extracts the username from context.
+func GetUsername(ctx context.Context) string {
+	if username, ok := ctx.Value(ContextKeyUsername).(string); ok {
+		return username
 	}
 	return ""
 }

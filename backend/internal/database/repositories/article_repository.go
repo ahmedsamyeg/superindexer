@@ -38,7 +38,7 @@ func (r *articleRepository) Create(ctx context.Context, article *models.Article)
 	return err
 }
 
-// CreateBulk inserts multiple articles efficiently.
+// CreateBulk inserts multiple articles efficiently using ON CONFLICT DO NOTHING.
 func (r *articleRepository) CreateBulk(ctx context.Context, articles []*models.Article) error {
 	if len(articles) == 0 {
 		return nil
@@ -124,8 +124,8 @@ func (r *articleRepository) ListByNewsgroup(ctx context.Context, newsgroupID int
 
 	// Apply pagination
 	query = query.
-		Offset(pagination.Offset()).
-		Limit(pagination.PerPage).
+		Offset(int64((pagination.Page - 1) * pagination.PerPage)).
+		Limit(int64(pagination.PerPage)).
 		Order("posted_at DESC")
 
 	if err := query.Scan(ctx); err != nil {
