@@ -114,8 +114,13 @@ func (s *SpotnetService) TestSourceConnection(ctx context.Context, source *model
 
 // SyncSource synchronizes posts from a Spotnet source
 func (s *SpotnetService) SyncSource(ctx context.Context, source *models.SpotnetSource) (int64, error) {
+	sinceDate := time.Time{}
+	if source.LastSyncAt != nil {
+		sinceDate = *source.LastSyncAt
+	}
+
 	// Get posts from the source
-	posts, err := s.client.GetPosts(ctx, source)
+	posts, err := s.client.GetPosts(ctx, source, "", sinceDate)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get posts from source: %w", err)
 	}

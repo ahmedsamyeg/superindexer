@@ -18,6 +18,9 @@ type Config struct {
 	// Authentication configuration
 	Auth AuthConfig
 
+	// Email configuration
+	Email EmailConfig
+
 	// NNTP configuration
 	NNTP NNTPConfig
 
@@ -53,6 +56,16 @@ type AuthConfig struct {
 	SessionSecret      string
 	SessionExpiry      time.Duration
 	PasswordResetToken string
+}
+
+// EmailConfig holds SMTP email settings.
+type EmailConfig struct {
+	Host     string
+	Port     int
+	Username string
+	Password string
+	From     string
+	Enabled  bool
 }
 
 // NNTPConfig holds NNTP server settings.
@@ -105,6 +118,15 @@ func Load() (*Config, error) {
 		SessionSecret:      getEnvString("SESSION_SECRET", "change-me-in-production"),
 		SessionExpiry:      getEnvDuration("SESSION_EXPIRY", 7*24*time.Hour),
 		PasswordResetToken: getEnvString("PASSWORD_RESET_TOKEN", ""),
+	}
+
+	c.Email = EmailConfig{
+		Host:     getEnvString("EMAIL_HOST", ""),
+		Port:     getEnvInt("EMAIL_PORT", 587),
+		Username: getEnvString("EMAIL_USERNAME", ""),
+		Password: getEnvString("EMAIL_PASSWORD", ""),
+		From:     getEnvString("EMAIL_FROM", ""),
+		Enabled:  getEnvBool("EMAIL_ENABLED", false),
 	}
 
 	c.NNTP = NNTPConfig{

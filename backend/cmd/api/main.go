@@ -50,7 +50,11 @@ func main() {
 	defer observability.Stop(context.Background())
 
 	// Create HTTP server
-	server := http.New(cfg, log, db.Bun())
+	server, err := http.New(cfg, log, db.Bun(), cfg.Auth.JWTSecret)
+	if err != nil {
+		log.Error("failed to create HTTP server", "error", err)
+		os.Exit(1)
+	}
 
 	// Graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())

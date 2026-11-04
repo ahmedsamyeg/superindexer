@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// MockUserService implements the UserService interface for testing
+// MockUserService implements the UserServiceInterface for testing
 type MockUserService struct {
 	users map[int64]*models.User
 }
@@ -107,9 +107,6 @@ func TestUserHandler(t *testing.T) {
 	// Create test context and request
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", nil)
 	req.Header.Set("Content-Type", "application/json")
-
-	// Create test response recorder
-	rec := httptest.NewRecorder()
 
 	// Test that handler was created successfully
 	assert.NotNil(t, handler)

@@ -9,17 +9,18 @@ import (
 
 	"github.com/superindexer/indexer/internal/database/models"
 	"github.com/superindexer/indexer/internal/database/repositories"
+	"github.com/superindexer/indexer/internal/usenet/connection"
 	"github.com/superindexer/indexer/internal/usenet/client"
 )
 
 // NewsgroupManager handles newsgroup discovery and management
 type NewsgroupManager struct {
-	db         repositories.UserRepository // Note: this should be the correct repository type
-	connMgr    *ConnectionManager         // Will need to update this reference once ConnectionManager is defined
+	db      repositories.NewsgroupRepository
+	connMgr *connection.ConnectionManager
 }
 
 // NewNewsgroupManager creates a new newsgroup manager
-func NewNewsgroupManager(db repositories.UserRepository, connMgr *ConnectionManager) *NewsgroupManager {
+func NewNewsgroupManager(db repositories.NewsgroupRepository, connMgr *connection.ConnectionManager) *NewsgroupManager {
 	return &NewsgroupManager{
 		db:      db,
 		connMgr: connMgr,
@@ -35,54 +36,28 @@ func (nm *NewsgroupManager) DiscoverNewsgroups(ctx context.Context, server *mode
 	}
 	defer nm.connMgr.ReleaseConnection(server.ID, conn)
 
-	// Send GROUP command to get available newsgroups
-	status, response, err := conn.SendCommand(ctx, "LIST")
+	// Use the NNTP client's List method to get newsgroups
+	newsgroupInfos, err := conn.List(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send LIST command: %w", err)
+		return nil, fmt.Errorf("failed to list newsgroups: %w", err)
 	}
 
-	if status >= 400 {
-		return nil, fmt.Errorf("server LIST command failed: %s", response)
-	}
-
-	// Parse the newsgroup list (format varies by server but typically is "newsgroup_name article_count")
-	newsgroups := make([]*models.Newsgroup, 0)
-	lines := strings.Split(response, "\n")
-	
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
+	newsgroups := make([]*models.Newsgroup, 0, len(newsgroupInfos))
+	for _, ni := range newsgroupInfos {
+		newsgroup := &models.Newsgroup{
+			Name:                   ni.Name,
+			Description:            ni.Description,
+			Enabled:                true,
+			FirstArticleNumber:     ni.FirstArticle,
+			LastArticleNumber:      ni.LastArticle,
+			LastIndexedArticleNum:  nil,
+			LastIndexedAt:          nil,
+			LastCheckAt:            nil,
+			IndexingPriority:       0,
+			CreatedAt:              time.Now(),
+			UpdatedAt:              time.Now(),
 		}
-
-		// Parse format: "newsgroup_name article_count"
-		parts := strings.Split(line, " ")
-		if len(parts) >= 2 {
-			newsgroupName := parts[0]
-			
-			// Parse article count (we'll use this for initial setup)
-			articleCount, err := parseArticleCount(parts[1])
-			if err != nil {
-				// Skip groups with invalid article count
-				continue
-			}
-
-			newsgroup := &models.Newsgroup{
-				Name:                   newsgroupName,
-				Description:            "",
-				Enabled:                true,
-				FirstArticleNumber:     1,
-				LastArticleNumber:      articleCount,
-				LastIndexedArticleNum:  nil,
-				LastIndexedAt:          nil,
-				LastCheckAt:            nil,
-				IndexingPriority:       0,
-				CreatedAt:              time.Now(),
-				UpdatedAt:              time.Now(),
-			}
-			
-			newsgroups = append(newsgroups, newsgroup)
-		}
+		newsgroups = append(newsgroups, newsgroup)
 	}
 
 	return newsgroups, nil
@@ -97,8 +72,8 @@ func (nm *NewsgroupManager) GetNewsgroupInfo(ctx context.Context, server *models
 	}
 	defer nm.connMgr.ReleaseConnection(server.ID, conn)
 
-	// Use GROUP command to get newsgroup info (this will typically return article range)
-	status, response, err := conn.SendCommand(ctx, "GROUP", newsgroupName)
+	// Use GROUP command to get newsgroup info
+	status, response, _, err := conn.SendCommand(ctx, "GROUP", newsgroupName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send GROUP command: %w", err)
 	}
@@ -109,7 +84,7 @@ func (nm *NewsgroupManager) GetNewsgroupInfo(ctx context.Context, server *models
 
 	// Parse the response to get article numbers
 	// Format: "211 <newsgroup_name> article_count first_article last_article"
-	parts := strings.Split(response, " ")
+	parts := strings.Fields(response)
 	if len(parts) < 4 {
 		return nil, fmt.Errorf("unexpected GROUP response format: %s", response)
 	}
@@ -142,9 +117,78 @@ func (nm *NewsgroupManager) GetNewsgroupInfo(ctx context.Context, server *models
 	return newsgroup, nil
 }
 
+// GetNewsgroupActiveInfo gets newsgroup info using LIST ACTIVE command
+func (nm *NewsgroupManager) GetNewsgroupActiveInfo(ctx context.Context, server *models.NNTPServer) ([]*models.Newsgroup, error) {
+	conn, err := nm.connMgr.GetConnection(ctx, server)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get connection to server %s: %w", server.Hostname, err)
+	}
+	defer nm.connMgr.ReleaseConnection(server.ID, conn)
+
+	newsgroupInfos, err := conn.ListActive(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list active newsgroups: %w", err)
+	}
+
+	newsgroups := make([]*models.Newsgroup, 0, len(newsgroupInfos))
+	for _, ni := range newsgroupInfos {
+		newsgroup := &models.Newsgroup{
+			Name:                   ni.Name,
+			Description:            ni.Description,
+			Enabled:                true,
+			FirstArticleNumber:     ni.FirstArticle,
+			LastArticleNumber:      ni.LastArticle,
+			LastIndexedArticleNum:  nil,
+			LastIndexedAt:          nil,
+			LastCheckAt:            nil,
+			IndexingPriority:       0,
+			CreatedAt:              time.Now(),
+			UpdatedAt:              time.Now(),
+		}
+		newsgroups = append(newsgroups, newsgroup)
+	}
+
+	return newsgroups, nil
+}
+
+// GetNewsgroupArticleRange gets the article range for a specific newsgroup using STAT command
+func (nm *NewsgroupManager) GetNewsgroupArticleRange(ctx context.Context, server *models.NNTPServer, newsgroupName string) (int64, int64, error) {
+	conn, err := nm.connMgr.GetConnection(ctx, server)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get connection to server %s: %w", server.Hostname, err)
+	}
+	defer nm.connMgr.ReleaseConnection(server.ID, conn)
+
+	// Use GROUP command to get article range
+	status, response, _, err := conn.SendCommand(ctx, "GROUP", newsgroupName)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to send GROUP command: %w", err)
+	}
+
+	if status >= 400 {
+		return 0, 0, fmt.Errorf("server GROUP command failed: %s", response)
+	}
+
+	parts := strings.Fields(response)
+	if len(parts) < 4 {
+		return 0, 0, fmt.Errorf("unexpected GROUP response format: %s", response)
+	}
+
+	firstArticle, err := parseArticleNumber(parts[2])
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to parse first article number: %w", err)
+	}
+
+	lastArticle, err := parseArticleNumber(parts[3])
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to parse last article number: %w", err)
+	}
+
+	return firstArticle, lastArticle, nil
+}
+
 // parseArticleCount converts article count string to integer
 func parseArticleCount(countStr string) (int64, error) {
-	// Convert string to integer
 	count, err := parseArticleNumber(countStr)
 	if err != nil {
 		return 0, fmt.Errorf("invalid article count: %w", err)
@@ -154,14 +198,27 @@ func parseArticleCount(countStr string) (int64, error) {
 
 // parseArticleNumber converts article number string to integer
 func parseArticleNumber(numStr string) (int64, error) {
-	// Remove any non-numeric characters and convert to integer
 	numStr = strings.Trim(numStr, " \t")
-	
-	// Convert string to integer
 	num, err := strconv.ParseInt(numStr, 10, 64)
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse article number: %w", err)
 	}
-	
 	return num, nil
+}
+
+// ConvertNewsgroupInfoToModel converts NNTP client NewsgroupInfo to database model
+func ConvertNewsgroupInfoToModel(ni client.NewsgroupInfo) *models.Newsgroup {
+	return &models.Newsgroup{
+		Name:                   ni.Name,
+		Description:            ni.Description,
+		Enabled:                true,
+		FirstArticleNumber:     ni.FirstArticle,
+		LastArticleNumber:      ni.LastArticle,
+		LastIndexedArticleNum:  nil,
+		LastIndexedAt:          nil,
+		LastCheckAt:            nil,
+		IndexingPriority:       0,
+		CreatedAt:              time.Now(),
+		UpdatedAt:              time.Now(),
+	}
 }

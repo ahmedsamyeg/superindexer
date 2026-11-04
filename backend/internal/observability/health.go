@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/superindexer/indexer/internal/database/models"
 	"github.com/superindexer/indexer/internal/database/repositories"
 )
 

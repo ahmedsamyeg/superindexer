@@ -87,7 +87,7 @@ func (mp *MetadataProcessor) normalizeDescription(desc string) string {
 	var normalized []rune
 	prevSpace := false
 	
-	for i, char := range desc {
+	for _, char := range desc {
 		if char == ' ' || char == '\t' {
 			if !prevSpace {
 				normalized = append(normalized, ' ')

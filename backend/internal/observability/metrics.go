@@ -25,7 +25,7 @@ type MetricsCollector struct {
 
 	// Spotnet metrics
 	spotnetSourcesEnabled prometheus.Gauge
-	spotnetPostsProcessed prometheus.CounterVec
+	spotnetPostsProcessed *prometheus.CounterVec
 
 	// Worker metrics
 	workerPoolSize   prometheus.Gauge

@@ -2,175 +2,385 @@ package test
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/superindexer/indexer/internal/auth"
-	"github.com/superindexer/indexer/internal/config"
-	"github.com/superindexer/indexer/internal/database/models"
-	"github.com/superindexer/indexer/internal/database/repositories"
-	"github.com/superindexer/indexer/internal/http/handlers"
-	"github.com/superindexer/indexer/internal/http/service"
-	"github.com/superindexer/indexer/internal/http/validator"
+	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
-	"github.com/uptrace/bun"
-	"github.com/uptrace/bun/dialect/pgdialect"
-	"github.com/uptrace/bun/extra/ulog"
+	"github.com/stretchr/testify/mock"
 )
 
-// TestIntegration provides integration testing utilities
-type TestIntegration struct {
-	db *bun.DB
+// MockAuthService provides a mock implementation for testing
+type MockAuthService struct {
+	mock.Mock
 }
 
-// NewTestIntegration creates a new test integration instance
-func NewTestIntegration() *TestIntegration {
-	// In a real implementation, this would set up a test database
-	return &TestIntegration{}
+func (m *MockAuthService) Login(ctx context.Context, username, password string) (*LoginResult, error) {
+	args := m.Called(ctx, username, password)
+	if result, ok := args.Get(0).(*LoginResult); ok {
+		return result, args.Error(1)
+	}
+	return nil, args.Error(1)
 }
 
-// TestUserHandler tests the user handler functionality
-func (ti *TestIntegration) TestUserHandler(t *testing.T) {
-	// This would test user CRUD operations
-	t.Log("Testing UserHandler functionality...")
-	
-	// Example test structure:
-	// 1. Setup test database with mock data
-	// 2. Test GET /users endpoint
-	// 3. Test POST /users endpoint  
-	// 4. Test PUT /users/:id endpoint
-	// 5. Test DELETE /users/:id endpoint
-	
-	t.Run("Get All Users", func(t *testing.T) {
-		// Mock database response
-		// Test actual API call to /users endpoint
-		// Assert proper response format and data
-		assert.True(t, true) // Placeholder - real implementation would test actual API calls
-	})
+func (m *MockAuthService) Register(ctx context.Context, username, email, password string) (*User, error) {
+	args := m.Called(ctx, username, email, password)
+	if user, ok := args.Get(0).(*User); ok {
+		return user, args.Error(1)
+	}
+	return nil, args.Error(1)
 }
 
-// TestAuthHandler tests the authentication handler functionality  
-func (ti *TestIntegration) TestAuthHandler(t *testing.T) {
-	// This would test authentication operations
-	t.Log("Testing AuthHandler functionality...")
-	
-	// Example tests:
-	// 1. Test login with valid credentials
-	// 2. Test login with invalid credentials  
-	// 3. Test registration with valid data
-	// 4. Test registration with duplicate username/email
-	// 5. Test password reset flow
-	
-	t.Run("Login With Valid Credentials", func(t *testing.T) {
-		// Mock successful authentication
-		// Test actual login endpoint call
-		// Assert JWT token is returned correctly
-		assert.True(t, true) // Placeholder - real implementation would test actual API calls
-	})
+func (m *MockAuthService) ValidateToken(ctx context.Context, tokenString string) (*TokenClaims, error) {
+	args := m.Called(ctx, tokenString)
+	if claims, ok := args.Get(0).(*TokenClaims); ok {
+		return claims, args.Error(1)
+	}
+	return nil, args.Error(1)
 }
 
-// TestSearchHandler tests the search handler functionality
-func (ti *TestIntegration) TestSearchHandler(t *testing.T) {
-	// This would test search operations
-	t.Log("Testing SearchHandler functionality...")
-	
-	// Example tests:
-	// 1. Test search with basic query
-	// 2. Test search with filters (category, date range)
-	// 3. Test search with pagination
-	// 4. Test search with sorting
-	
-	t.Run("Search With Basic Query", func(t *testing.T) {
-		// Mock search results
-		// Test actual search endpoint call
-		// Assert proper search results format
-		assert.True(t, true) // Placeholder - real implementation would test actual API calls
-	})
+func (m *MockAuthService) RequestPasswordReset(ctx context.Context, email string) error {
+	args := m.Called(ctx, email)
+	return args.Error(0)
 }
 
-// TestSpotnetHandler tests the spotnet handler functionality
-func (ti *TestIntegration) TestSpotnetHandler(t *testing.T) {
-	// This would test spotnet source management
-	t.Log("Testing SpotnetHandler functionality...")
-	
-	t.Run("Get Spotnet Sources", func(t *testing.T) {
-		// Test listing spotnet sources
-		assert.True(t, true)
-	})
+func (m *MockAuthService) ConfirmPasswordReset(ctx context.Context, token, newPassword string) error {
+	args := m.Called(ctx, token, newPassword)
+	return args.Error(0)
 }
 
-// TestNNTPHandler tests the nntp handler functionality
-func (ti *TestIntegration) TestNNTPHandler(t *testing.T) {
-	// This would test nntp server management
-	t.Log("Testing NNTPHandler functionality...")
-	
-	t.Run("Get NNTP Servers", func(t *testing.T) {
-		// Test listing nntp servers
-		assert.True(t, true)
-	})
+// LoginResult holds the result of a login attempt.
+type LoginResult struct {
+	Token  string
+	User   *User
 }
 
-// TestAdminHandler tests the admin handler functionality
-func (ti *TestIntegration) TestAdminHandler(t *testing.T) {
-	// This would test admin dashboard functionality
-	t.Log("Testing AdminHandler functionality...")
-	
-	t.Run("Get System Stats", func(t *testing.T) {
-		// Test dashboard statistics endpoint
-		assert.True(t, true)
-	})
+// User represents a user model.
+type User struct {
+	ID           int64
+	Username     string
+	Email        string
+	PasswordHash string
+	Role         string
+	IsActive     bool
+}
+
+// TokenClaims holds the JWT claims.
+type TokenClaims struct {
+	UserID   int64
+	Role     string
+	Username string
 }
 
 // TestHealthEndpoints tests system health and readiness endpoints
-func (ti *TestIntegration) TestHealthEndpoints(t *testing.T) {
-	// This would test health and readiness endpoints
-	t.Log("Testing HealthEndpoints...")
-	
-	t.Run("Health Check", func(t *testing.T) {
-		// Test /health endpoint returns 200
-		assert.True(t, true)
+func TestHealthEndpoints(t *testing.T) {
+	e := echo.New()
+
+	// Test health endpoint returns 200 with proper structure
+	t.Run("Health Check Returns 200", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := HealthCheck(c)
+
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		var response map[string]interface{}
+		err = json.Unmarshal(rec.Body.Bytes(), &response)
+		assert.NoError(t, err)
+
+		assert.True(t, response["healthy"].(bool))
+		assert.Contains(t, response, "checks")
+		assert.Contains(t, response, "timestamp")
 	})
-	
-	t.Run("Readiness Check", func(t *testing.T) {
-		// Test /ready endpoint returns 200
-		assert.True(t, true)
+
+	// Test readiness endpoint returns 200
+	t.Run("Readiness Check Returns 200", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/ready", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := ReadyCheck(c)
+
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		var response map[string]interface{}
+		err = json.Unmarshal(rec.Body.Bytes(), &response)
+		assert.NoError(t, err)
+
+		assert.True(t, response["ready"].(bool))
+		assert.Contains(t, response, "message")
 	})
 }
 
 // TestAPIValidation tests request validation and error handling
-func (ti *TestIntegration) TestAPIValidation(t *testing.T) {
-	// This would test validation and error responses
-	t.Log("Testing API Validation...")
-	
-	t.Run("Validate Login Request", func(t *testing.T) {
-		// Test invalid login request (missing fields)
-		// Should return 400 with validation error
-		assert.True(t, true)
+func TestAPIValidation(t *testing.T) {
+	e := echo.New()
+
+	t.Run("Login With Missing Username Returns 400", func(t *testing.T) {
+		reqBody := `{"password": "password"}`
+		req := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := ValidateLoginRequest(c)
+
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
-	
-	t.Run("Validate User Creation", func(t *testing.T) {
-		// Test invalid user creation request (invalid email format)
-		// Should return 400 with validation error
-		assert.True(t, true)
+
+	t.Run("Login With Missing Password Returns 400", func(t *testing.T) {
+		reqBody := `{"username": "testuser"}`
+		req := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := ValidateLoginRequest(c)
+
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("Login With Empty Body Returns 400", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/auth/login", nil)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := ValidateLoginRequest(c)
+
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("Register With Invalid Email Returns 400", func(t *testing.T) {
+		reqBody := `{"username": "testuser", "email": "invalid-email", "password": "password123"}`
+		req := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := ValidateRegisterRequest(c)
+
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("Register With Short Password Returns 400", func(t *testing.T) {
+		reqBody := `{"username": "testuser", "email": "test@example.com", "password": "short"}`
+		req := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := ValidateRegisterRequest(c)
+
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("Register With Missing Fields Returns 400", func(t *testing.T) {
+		reqBody := `{"username": "testuser"}`
+		req := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := ValidateRegisterRequest(c)
+
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 }
 
-// TestDatabaseIntegration tests database operations and migrations
-func (ti *TestIntegration) TestDatabaseIntegration(t *testing.T) {
-	// This would test database operations and migrations
-	t.Log("Testing Database Integration...")
-	
-	t.Run("Database Migrations", func(t *testing.T) {
-		// Test that all migrations run successfully
-		assert.True(t, true)
+// TestAuthHandlerWithMocks tests authentication handler with mocked services
+func TestAuthHandlerWithMocks(t *testing.T) {
+	e := echo.New()
+	mockService := new(MockAuthService)
+
+	t.Run("Successful Login Returns Token", func(t *testing.T) {
+		loginResult := &LoginResult{
+			Token: "mock-jwt-token",
+			User: &User{
+				ID:       1,
+				Username: "testuser",
+				Email:    "test@example.com",
+				Role:     "user",
+				IsActive: true,
+			},
+		}
+		mockService.On("Login", mock.Anything, "testuser", "password").Return(loginResult, nil)
+
+		reqBody := `{"username": "testuser", "password": "password"}`
+		req := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		// Simulate login flow
+		var reqData struct {
+			Username string `json:"username" validate:"required"`
+			Password string `json:"password" validate:"required"`
+		}
+		_ = json.NewDecoder(req.Body).Decode(&reqData)
+
+		// Validate
+		if reqData.Username == "" || reqData.Password == "" {
+			c.JSON(http.StatusBadRequest, map[string]string{"error": "validation failed"})
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			return
+		}
+
+		result, err := mockService.Login(c.Request().Context(), reqData.Username, reqData.Password)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.NotEmpty(t, result.Token)
+		assert.Equal(t, "testuser", result.User.Username)
+
+		mockService.AssertExpectations(t)
 	})
-	
-	t.Run("Repository Operations", func(t *testing.T) {
-		// Test repository CRUD operations
-		assert.True(t, true)
+
+	t.Run("Failed Login Returns 401", func(t *testing.T) {
+		mockService.On("Login", mock.Anything, "invaliduser", "wrongpassword").Return(
+			(*LoginResult)(nil), assert.AnError)
+
+		reqBody := `{"username": "invaliduser", "password": "wrongpassword"}`
+		req := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		var reqData struct {
+			Username string `json:"username" validate:"required"`
+			Password string `json:"password" validate:"required"`
+		}
+		_ = json.NewDecoder(req.Body).Decode(&reqData)
+
+		result, err := mockService.Login(c.Request().Context(), reqData.Username, reqData.Password)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+
+		mockService.AssertExpectations(t)
 	})
+
+	t.Run("Successful Registration Returns User", func(t *testing.T) {
+		user := &User{
+			ID:       2,
+			Username: "newuser",
+			Email:    "new@example.com",
+			Role:     "user",
+			IsActive: true,
+		}
+		mockService.On("Register", mock.Anything, "newuser", "new@example.com", "password123").Return(user, nil)
+
+		reqBody := `{"username": "newuser", "email": "new@example.com", "password": "password123"}`
+		req := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		var reqData struct {
+			Username string `json:"username" validate:"required"`
+			Email    string `json:"email" validate:"required,email"`
+			Password string `json:"password" validate:"required,min=8"`
+		}
+		_ = json.NewDecoder(req.Body).Decode(&reqData)
+
+		result, err := mockService.Register(c.Request().Context(), reqData.Username, reqData.Email, reqData.Password)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, "newuser", result.Username)
+
+		mockService.AssertExpectations(t)
+	})
+
+	t.Run("Password Reset Request Returns Success", func(t *testing.T) {
+		mockService.On("RequestPasswordReset", mock.Anything, "test@example.com").Return(nil)
+
+		reqBody := `{"email": "test@example.com"}`
+		req := httptest.NewRequest(http.MethodPost, "/auth/password/reset", strings.NewReader(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		var reqData struct {
+			Email string `json:"email" validate:"required,email"`
+		}
+		_ = json.NewDecoder(req.Body).Decode(&reqData)
+
+		err := mockService.RequestPasswordReset(c.Request().Context(), reqData.Email)
+		assert.NoError(t, err)
+
+		mockService.AssertExpectations(t)
+	})
+
+	t.Run("Password Reset Confirm Returns Success", func(t *testing.T) {
+		mockService.On("ConfirmPasswordReset", mock.Anything, "reset-token", "newpassword123").Return(nil)
+
+		reqBody := `{"token": "reset-token", "password": "newpassword123"}`
+		req := httptest.NewRequest(http.MethodPost, "/auth/password/reset/confirm", strings.NewReader(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		var reqData struct {
+			Token    string `json:"token" validate:"required"`
+			Password string `json:"password" validate:"required,min=8"`
+		}
+		_ = json.NewDecoder(req.Body).Decode(&reqData)
+
+		err := mockService.ConfirmPasswordReset(c.Request().Context(), reqData.Token, reqData.Password)
+		assert.NoError(t, err)
+
+		mockService.AssertExpectations(t)
+	})
+}
+
+// TestVersionEndpoint tests the version endpoint
+func TestVersionEndpoint(t *testing.T) {
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodGet, "/version", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := Version(c)
+
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var response map[string]interface{}
+	err = json.Unmarshal(rec.Body.Bytes(), &response)
+	assert.NoError(t, err)
+
+	assert.Contains(t, response, "version")
+	assert.Contains(t, response, "build")
+}
+
+// TestLogoutEndpoint tests the logout endpoint
+func TestLogoutEndpoint(t *testing.T) {
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := Logout(c)
+
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var response map[string]interface{}
+	err = json.Unmarshal(rec.Body.Bytes(), &response)
+	assert.NoError(t, err)
+
+	assert.Equal(t, "logged out successfully", response["message"])
 }

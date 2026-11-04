@@ -1,13 +1,11 @@
 package test
 
 import (
-	"context"
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/superindexer/indexer/internal/auth"
-	"github.com/superindexer/indexer/internal/database/models"
-	"github.com/superindexer/indexer/internal/http/service"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -60,9 +58,9 @@ func TestAuthServiceImpl(t *testing.T) {
 			UserID:   123,
 			Role:     "admin",
 			Username: "adminuser",
-			RegisteredClaims: auth.RegisteredClaims{
-				ExpiresAt: auth.NewNumericDate(time.Now().Add(1 * time.Hour)),
-				IssuedAt:  auth.NewNumericDate(time.Now()),
+			RegisteredClaims: jwt.RegisteredClaims{
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
+				IssuedAt:  jwt.NewNumericDate(time.Now()),
 				Issuer:    "superindexer",
 			},
 		}

@@ -1,18 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { UserIcon, EditIcon, Trash2Icon, PlusIcon, SearchIcon } from 'lucide-react';
-
-interface User {
-  id: number;
-  username: string;
-  email: string;
-  role: 'admin' | 'user';
-  isActive: boolean;
-  createdAt: string;
-}
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  UserIcon,
+  EditIcon,
+  Trash2Icon,
+  PlusIcon,
+  SearchIcon,
+  CheckCircleIcon,
+  XCircleIcon,
+} from 'lucide-react';
+import { userApi } from '../../api';
 
 export const UserManagement: React.FC = () => {
-  const [users, setUsers] = useState<User[]>([]);
-  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newUser, setNewUser] = useState({
@@ -21,83 +20,64 @@ export const UserManagement: React.FC = () => {
     password: '',
     role: 'user' as 'admin' | 'user',
   });
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
-  // Simulate fetching users
-  useEffect(() => {
-    const fetchUsers = async () => {
-      try {
-        // In a real implementation, this would call the backend API
-        setTimeout(() => {
-          setUsers([
-            {
-              id: 1,
-              username: 'admin',
-              email: 'admin@example.com',
-              role: 'admin',
-              isActive: true,
-              createdAt: '2024-01-15',
-            },
-            {
-              id: 2,
-              username: 'user1',
-              email: 'user1@example.com',
-              role: 'user',
-              isActive: true,
-              createdAt: '2024-02-20',
-            },
-            {
-              id: 3,
-              username: 'user2',
-              email: 'user2@example.com',
-              role: 'user',
-              isActive: false,
-              createdAt: '2024-03-10',
-            },
-          ]);
-          setLoading(false);
-        }, 500);
-      } catch (error) {
-        console.error('Failed to fetch users:', error);
-        setLoading(false);
-      }
-    };
+  const queryClient = useQueryClient();
 
-    fetchUsers();
-  }, []);
+  // Fetch users
+  const { data, isLoading, error: fetchError } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => userApi.list(),
+  });
 
-  const handleCreateUser = () => {
-    if (!newUser.username || !newUser.email || !newUser.password) return;
-    
-    const user: User = {
-      id: users.length + 1,
-      username: newUser.username,
-      email: newUser.email,
-      role: newUser.role,
-      isActive: true,
-      createdAt: new Date().toISOString().split('T')[0],
-    };
-    
-    setUsers([...users, user]);
-    setShowCreateForm(false);
-    setNewUser({ username: '', email: '', password: '', role: 'user' });
-  };
+  // Create user mutation
+  const createMutation = useMutation({
+    mutationFn: (data: { username: string; email: string; password: string; role: string }) =>
+      userApi.create(data.username, data.email, data.password, data.role),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setShowCreateForm(false);
+      setNewUser({ username: '', email: '', password: '', role: 'user' });
+      setSuccess('User created successfully');
+      setTimeout(() => setSuccess(''), 3000);
+    },
+    onError: (err: any) => {
+      setError(err.message || 'Failed to create user');
+      setTimeout(() => setError(''), 5000);
+    },
+  });
 
-  const handleDeleteUser = (id: number) => {
-    setUsers(users.filter(user => user.id !== id));
-  };
+  // Delete user mutation
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => userApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+    },
+    onError: (err: any) => {
+      setError(err.message || 'Failed to delete user');
+      setTimeout(() => setError(''), 5000);
+    },
+  });
 
-  const handleToggleActive = (id: number) => {
-    setUsers(users.map(user => 
-      user.id === id ? { ...user, isActive: !user.isActive } : user
-    ));
-  };
+  // Toggle active mutation
+  const toggleMutation = useMutation({
+    mutationFn: (id: number) => userApi.toggleActive(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+    },
+    onError: (err: any) => {
+      setError(err.message || 'Failed to toggle user status');
+      setTimeout(() => setError(''), 5000);
+    },
+  });
 
-  const filteredUsers = users.filter(user => 
+  const filteredUsers = (data?.data || []).filter((user) =>
     user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
     user.email.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex justify-center items-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
@@ -114,7 +94,7 @@ export const UserManagement: React.FC = () => {
             <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
             <button
               onClick={() => setShowCreateForm(true)}
-              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none"
+              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
             >
               <PlusIcon className="h-4 w-4 mr-1" />
               Add User
@@ -124,6 +104,26 @@ export const UserManagement: React.FC = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
+        {/* Status Messages */}
+        {success && (
+          <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center">
+            <CheckCircleIcon className="h-5 w-5 text-green-500 mr-2" />
+            <p className="text-sm text-green-700">{success}</p>
+          </div>
+        )}
+        {error && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center">
+            <XCircleIcon className="h-5 w-5 text-red-500 mr-2" />
+            <p className="text-sm text-red-700">{error}</p>
+          </div>
+        )}
+        {fetchError && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center">
+            <XCircleIcon className="h-5 w-5 text-red-500 mr-2" />
+            <p className="text-sm text-red-700">Failed to load users</p>
+          </div>
+        )}
+
         {/* Search and Filters */}
         <div className="bg-white rounded-lg shadow p-4 mb-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -141,13 +141,9 @@ export const UserManagement: React.FC = () => {
             </div>
             
             <div className="flex items-center space-x-2">
-              <span className="text-sm text-gray-500">Filter:</span>
-              <select className="border border-gray-300 rounded-md px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                <option>All Users</option>
-                <option>Active</option>
-                <option>Inactive</option>
-                <option>Admins</option>
-              </select>
+              <span className="text-sm text-gray-500">
+                {filteredUsers.length} of {data?.total || 0} users
+              </span>
             </div>
           </div>
         </div>
@@ -161,9 +157,7 @@ export const UserManagement: React.FC = () => {
                 
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Username
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
                     <input
                       type="text"
                       value={newUser.username}
@@ -174,9 +168,7 @@ export const UserManagement: React.FC = () => {
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Email
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
                     <input
                       type="email"
                       value={newUser.email}
@@ -187,9 +179,7 @@ export const UserManagement: React.FC = () => {
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Password
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
                     <input
                       type="password"
                       value={newUser.password}
@@ -200,9 +190,7 @@ export const UserManagement: React.FC = () => {
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Role
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
                     <select
                       value={newUser.role}
                       onChange={(e) => setNewUser({...newUser, role: e.target.value as 'admin' | 'user'})}
@@ -217,15 +205,16 @@ export const UserManagement: React.FC = () => {
                 <div className="mt-6 flex justify-end space-x-3">
                   <button
                     onClick={() => setShowCreateForm(false)}
-                    className="px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none"
+                    className="px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
                   >
                     Cancel
                   </button>
                   <button
-                    onClick={handleCreateUser}
-                    className="px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none"
+                    onClick={() => createMutation.mutate(newUser)}
+                    disabled={createMutation.isPending}
+                    className="px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
                   >
-                    Create User
+                    {createMutation.isPending ? 'Creating...' : 'Create User'}
                   </button>
                 </div>
               </div>
@@ -238,21 +227,11 @@ export const UserManagement: React.FC = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  User
-                </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Role
-                </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Created
-                </th>
-                <th scope="col" className="relative px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
+                <th className="relative px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -261,7 +240,9 @@ export const UserManagement: React.FC = () => {
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
                       <div className="flex-shrink-0 h-10 w-10">
-                        <UserIcon className="h-6 w-6 text-gray-400" />
+                        <div className="h-10 w-10 bg-blue-600 rounded-full flex items-center justify-center">
+                          <span className="text-sm font-bold text-white">{user.username.charAt(0).toUpperCase()}</span>
+                        </div>
                       </div>
                       <div className="ml-4">
                         <div className="text-sm font-medium text-gray-900">{user.username}</div>
@@ -271,36 +252,38 @@ export const UserManagement: React.FC = () => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      user.role === 'admin' 
-                        ? 'bg-purple-100 text-purple-800' 
-                        : 'bg-blue-100 text-blue-800'
+                      user.role === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
                     }`}>
                       {user.role}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      user.isActive 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-red-100 text-red-800'
+                      user.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                     }`}>
-                      {user.isActive ? 'Active' : 'Inactive'}
+                      {user.is_active ? 'Active' : 'Inactive'}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {user.createdAt}
+                    {user.created_at ? new Date(user.created_at).toLocaleDateString() : '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex justify-end space-x-2">
                       <button
-                        onClick={() => handleToggleActive(user.id)}
-                        className="text-blue-600 hover:text-blue-900"
+                        onClick={() => toggleMutation.mutate(user.id)}
+                        disabled={toggleMutation.isPending}
+                        className="text-blue-600 hover:text-blue-900 disabled:opacity-50"
                       >
-                        <EditIcon className="h-4 w-4" />
+                        {toggleMutation.isPending ? '...' : <EditIcon className="h-4 w-4" />}
                       </button>
                       <button
-                        onClick={() => handleDeleteUser(user.id)}
-                        className="text-red-600 hover:text-red-900"
+                        onClick={() => {
+                          if (window.confirm(`Delete user ${user.username}?`)) {
+                            deleteMutation.mutate(user.id);
+                          }
+                        }}
+                        disabled={deleteMutation.isPending}
+                        className="text-red-600 hover:text-red-900 disabled:opacity-50"
                       >
                         <Trash2Icon className="h-4 w-4" />
                       </button>

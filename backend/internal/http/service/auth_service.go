@@ -16,22 +16,30 @@ import (
 
 // AuthService handles authentication operations.
 type AuthService struct {
-	userRepo repositories.UserRepository
-	cfg      config.AuthConfig
+	userRepo         repositories.UserRepository
+	cfg              config.AuthConfig
+	emailService     *EmailService
+	refreshTokens    *RefreshTokenService
+	tokenBlacklist   *TokenBlacklistService
 }
 
 // NewAuthService creates a new AuthService.
-func NewAuthService(userRepo repositories.UserRepository, cfg config.AuthConfig) *AuthService {
+func NewAuthService(userRepo repositories.UserRepository, cfg config.AuthConfig, emailService *EmailService, refreshTokens *RefreshTokenService, tokenBlacklist *TokenBlacklistService) *AuthService {
 	return &AuthService{
-		userRepo: userRepo,
-		cfg:      cfg,
+		userRepo:       userRepo,
+		cfg:            cfg,
+		emailService:   emailService,
+		refreshTokens:  refreshTokens,
+		tokenBlacklist: tokenBlacklist,
 	}
 }
 
 // LoginResult holds the result of a login attempt.
 type LoginResult struct {
-	Token  string       `json:"token"`
-	User   *models.User `json:"user"`
+	Token          string       `json:"token"`
+	RefreshToken   string       `json:"refresh_token"`
+	ExpiresAt      int64        `json:"expires_at"`
+	User           *models.User `json:"user"`
 }
 
 // Login authenticates a user by username and password.
@@ -52,19 +60,17 @@ func (s *AuthService) Login(ctx context.Context, username, password string) (*Lo
 		return nil, errors.New("invalid username or password")
 	}
 
-	// Generate token
-	token, err := auth.GenerateToken(user.ID, user.Role, user.Username, auth.JWTConfig{
-		Secret: []byte(s.cfg.JWTSecret),
-		Issuer: "superindexer",
-		Expiry: int(s.cfg.JWTExpiry.Seconds()),
-	})
+	// Generate token pair (access + refresh)
+	pair, err := s.refreshTokens.GenerateRefreshToken(ctx, user.ID, user.Role, user.Username)
 	if err != nil {
-		return nil, fmt.Errorf("generate token: %w", err)
+		return nil, fmt.Errorf("generate token pair: %w", err)
 	}
 
 	return &LoginResult{
-		Token: token,
-		User:  user,
+		Token:        pair.AccessToken,
+		RefreshToken: pair.RefreshToken,
+		ExpiresAt:    pair.ExpiresAt,
+		User:         user,
 	}, nil
 }
 
@@ -108,7 +114,7 @@ func (s *AuthService) ValidateToken(ctx context.Context, tokenString string) (*a
 	return auth.ValidateToken(tokenString, auth.JWTConfig{
 		Secret: []byte(s.cfg.JWTSecret),
 		Issuer: "superindexer",
-		Expiry: int(s.cfg.JWTExpiry.Seconds()),
+		Expiry: int64(s.cfg.JWTExpiry.Seconds()),
 	})
 }
 
@@ -136,11 +142,15 @@ func (s *AuthService) RequestPasswordReset(ctx context.Context, email string) er
 		return fmt.Errorf("store reset token: %w", err)
 	}
 
-	// In a real system, we would:
-	// 1. Send an email with the reset link (e.g., to: https://yoursite.com/reset?token=...)
-	// 2. Log the password reset request
-	// For this phase, we'll just simulate that it was sent successfully
-	
+	// Send email with reset link
+	// In production, this would be a full URL like: https://yoursite.com/reset?token=xxx
+	resetLink := fmt.Sprintf("https://yoursite.com/reset?token=%s", token)
+	if err := s.emailService.SendPasswordResetEmail(email, resetLink); err != nil {
+		// Log the error but don't fail the request (user experience)
+		// In production, you'd want proper logging here
+		return nil
+	}
+
 	return nil
 }
 
@@ -319,4 +329,11 @@ func (s *UserService) ToggleUserActive(ctx context.Context, id int64) (*models.U
 	}
 
 	return user, nil
+}
+// DefaultAuthConfig returns a default auth config for service initialization.
+func DefaultAuthConfig() config.AuthConfig {
+	return config.AuthConfig{
+		JWTSecret: "change-me-in-production",
+		JWTExpiry: 24 * time.Hour,
+	}
 }

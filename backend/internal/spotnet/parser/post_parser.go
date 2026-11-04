@@ -9,11 +9,11 @@ import (
 	"github.com/superindexer/indexer/internal/database/models"
 )
 
-// PostParser handles parsing Spotnet posts into standardized format
+// PostParser handles parsing Spotnet posts into a standardized format
 type PostParser struct {
 }
 
-// NewPostParser creates a new post parser
+// NewPostParser creates a new post-parser
 func NewPostParser() *PostParser {
 	return &PostParser{}
 }
@@ -22,7 +22,7 @@ func NewPostParser() *PostParser {
 func (p *PostParser) ParseSpotnetPost(ctx context.Context, rawPost interface{}, source *models.SpotnetSource) (*models.SpotnetPost, error) {
 	// Convert raw data to a standardized format
 	var post *models.SpotnetPost
-	
+
 	switch v := rawPost.(type) {
 	case *models.SpotnetPost:
 		return v, nil
@@ -38,23 +38,23 @@ func (p *PostParser) ParseSpotnetPost(ctx context.Context, rawPost interface{}, 
 			RawMetadata:        string(marshalJSON(v)),
 			NormalizedMetadata: "{}",
 		}
-		
+
 		// Set source ID
 		if source != nil {
 			post.SourceID = source.ID
 		}
-		
+
 	default:
 		return nil, fmt.Errorf("unsupported post format: %T", v)
 	}
-	
+
 	return post, nil
 }
 
 // ParseSpotnetPosts converts multiple raw posts to internal models
 func (p *PostParser) ParseSpotnetPosts(ctx context.Context, rawPosts []interface{}, source *models.SpotnetSource) ([]*models.SpotnetPost, error) {
 	posts := make([]*models.SpotnetPost, 0, len(rawPosts))
-	
+
 	for _, rawPost := range rawPosts {
 		post, err := p.ParseSpotnetPost(ctx, rawPost, source)
 		if err != nil {
@@ -62,7 +62,7 @@ func (p *PostParser) ParseSpotnetPosts(ctx context.Context, rawPosts []interface
 		}
 		posts = append(posts, post)
 	}
-	
+
 	return posts, nil
 }
 
@@ -73,22 +73,22 @@ func (p *PostParser) NormalizeMetadata(ctx context.Context, post *models.Spotnet
 		// Normalize title (trim whitespace, etc.)
 		post.Title = normalizeString(post.Title)
 	}
-	
+
 	if post.Description != "" {
 		// Normalize description
 		post.Description = normalizeString(post.Description)
 	}
-	
+
 	if post.Author != "" {
 		// Normalize author name
 		post.Author = normalizeString(post.Author)
 	}
-	
+
 	if post.CategoryName != "" {
 		// Normalize category name
 		post.CategoryName = normalizeString(post.CategoryName)
 	}
-	
+
 	// Create normalized metadata structure
 	normalized := map[string]interface{}{
 		"title":       post.Title,
@@ -97,13 +97,13 @@ func (p *PostParser) NormalizeMetadata(ctx context.Context, post *models.Spotnet
 		"category":    post.CategoryName,
 		"posted_at":   post.PostedAt,
 	}
-	
+
 	// Convert to JSON string
 	normalizedJSON, err := json.Marshal(normalized)
 	if err != nil {
 		return fmt.Errorf("failed to marshal normalized metadata: %w", err)
 	}
-	
+
 	post.NormalizedMetadata = string(normalizedJSON)
 	return nil
 }
@@ -123,23 +123,23 @@ func parseTime(timeStr string) time.Time {
 	if timeStr == "" {
 		return time.Now()
 	}
-	
+
 	// Try parsing different time formats
 	t, err := time.Parse(time.RFC3339, timeStr)
 	if err == nil {
 		return t
 	}
-	
+
 	t, err = time.Parse("2006-01-02T15:04:05Z", timeStr)
 	if err == nil {
 		return t
 	}
-	
+
 	t, err = time.Parse(time.RFC1123Z, timeStr)
 	if err == nil {
 		return t
 	}
-	
+
 	return time.Now()
 }
 
@@ -153,7 +153,7 @@ func trimWhitespace(s string) string {
 	// Remove leading/trailing whitespace and normalize internal spaces
 	result := ""
 	inSpace := false
-	
+
 	for i, char := range s {
 		if char == ' ' || char == '\t' || char == '\n' {
 			if !inSpace && i > 0 {
@@ -165,7 +165,7 @@ func trimWhitespace(s string) string {
 			inSpace = false
 		}
 	}
-	
+
 	return result
 }
 
@@ -173,7 +173,7 @@ func marshalJSON(v interface{}) []byte {
 	if data, ok := v.([]byte); ok {
 		return data
 	}
-	
+
 	data, _ := json.Marshal(v)
 	return data
 }

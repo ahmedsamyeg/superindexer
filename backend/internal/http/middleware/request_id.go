@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/superindexer/indexer/internal/auth"
+	"github.com/uptrace/bun"
 )
 
 // contextKey is a custom type for context keys to avoid collisions.
@@ -41,7 +42,8 @@ func RequestID() echo.MiddlewareFunc {
 }
 
 // AuthMiddleware creates an Echo middleware that validates JWT tokens.
-func AuthMiddleware() echo.MiddlewareFunc {
+// It accepts a bun.DB for potential token revocation checks and a JWT secret.
+func AuthMiddleware(db *bun.DB, jwtSecret string) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			// Extract token from Authorization header
@@ -58,9 +60,8 @@ func AuthMiddleware() echo.MiddlewareFunc {
 			tokenString := parts[1]
 
 			// Validate JWT token and extract user info
-			// For now, we'll hardcode the secret - in production this would come from config
 			claims, err := auth.ValidateToken(tokenString, auth.JWTConfig{
-				Secret: []byte("superindexer-secret-key"), // This should come from config
+				Secret: []byte(jwtSecret),
 				Issuer: "superindexer",
 				Expiry: 3600, // 1 hour
 			})
@@ -101,25 +102,33 @@ func GetRequestID(ctx context.Context) string {
 }
 
 // GetUserID extracts the user ID from context.
-func GetUserID(ctx context.Context) int64 {
+func GetUserID(ctx context.Context) (int64, bool) {
 	if id, ok := ctx.Value(userIDKey).(int64); ok {
-		return id
+		return id, true
 	}
-	return 0
+	return 0, false
 }
 
 // GetUserRole extracts the user role from context.
-func GetUserRole(ctx context.Context) string {
+func GetUserRole(ctx context.Context) (string, bool) {
 	if role, ok := ctx.Value(userRoleKey).(string); ok {
-		return role
+		return role, true
 	}
-	return ""
+	return "", false
 }
 
 // GetUsername extracts the username from context.
-func GetUsername(ctx context.Context) string {
+func GetUsername(ctx context.Context) (string, bool) {
 	if username, ok := ctx.Value(ContextKeyUsername).(string); ok {
-		return username
+		return username, true
 	}
-	return ""
+	return "", false
+}
+
+// SetUserInContext adds user info to the request context (for testing).
+func SetUserInContext(ctx context.Context, userID int64, role, username string) context.Context {
+	ctx = context.WithValue(ctx, userIDKey, userID)
+	ctx = context.WithValue(ctx, userRoleKey, role)
+	ctx = context.WithValue(ctx, ContextKeyUsername, username)
+	return ctx
 }

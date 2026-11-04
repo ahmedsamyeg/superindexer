@@ -47,14 +47,16 @@ func NewPaginatedResult(data interface{}, total, page, perPage int64) *Paginated
 type User struct {
 	bun.BaseModel `bun:"table:users,alias:u"`
 
-	ID           int64     `bun:"id,pk,autoincrement" json:"id"`
-	Username     string    `bun:"username,notnull,unique" json:"username"`
-	Email        string    `bun:"email,notnull,unique" json:"email"`
-	PasswordHash string    `bun:"password_hash,notnull" json:"-"`
-	Role         string    `bun:"role,notnull,default:'user'" json:"role"`
-	IsActive     bool      `bun:"is_active,notnull,default:true" json:"is_active"`
-	CreatedAt    time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
-	UpdatedAt    time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
+	ID                  int64      `bun:"id,pk,autoincrement" json:"id"`
+	Username            string     `bun:"username,notnull,unique" json:"username"`
+	Email               string     `bun:"email,notnull,unique" json:"email"`
+	PasswordHash        string     `bun:"password_hash,notnull" json:"-"`
+	Role                string     `bun:"role,notnull,default:'user'" json:"role"`
+	IsActive            bool       `bun:"is_active,notnull,default:true" json:"is_active"`
+	PasswordResetToken  *string    `bun:"password_reset_token" json:"-"`
+	PasswordResetExpiry *time.Time `bun:"password_reset_expiry" json:"-"`
+	CreatedAt           time.Time  `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
+	UpdatedAt           time.Time  `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
 }
 
 // NNTPServer represents a configured NNTP server.

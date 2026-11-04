@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -102,7 +103,7 @@ func GenerateToken(userID int64, role, username string, cfg JWTConfig) (string, 
 		Role:     role,
 		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(cfg.Expiry * time.Second)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(cfg.Expiry) * time.Second)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			Issuer:    cfg.Issuer,
 		},
@@ -162,16 +163,11 @@ func ExtractUserFromContext(ctx context.Context) (int64, string, string, bool) {
 // Helper functions
 
 func splitHash(hash string) []string {
-	parts := make([]string, 2)
-	idx := 0
-	for i, c := range hash {
-		if c == '|' && i > 0 && hash[i-1] == '|' {
-			parts[idx] = hash[:i]
-			parts[idx+1] = hash[i+2:]
-			return parts
-		}
+	idx := strings.Index(hash, "||")
+	if idx == -1 {
+		return []string{hash}
 	}
-	return []string{hash}
+	return []string{hash[:idx], hash[idx+2:]}
 }
 
 func compareHashes(a, b []byte) bool {

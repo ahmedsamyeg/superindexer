@@ -1,0 +1,140 @@
+groups:
+  - name: indexer_alerts
+    interval: 30s
+    rules:
+      # Application health alerts
+      - alert: IndexerAppUnhealthy
+        expr: indexer_app_healthy == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Indexer application is unhealthy"
+          description: "The indexer application has been unhealthy for more than 2 minutes. Current status: {{ $value }}"
+          runbook_url: "https://github.com/superindexer/indexer/wiki/Runbooks#app-unhealthy"
+
+      # Database connection pool alerts
+      - alert: IndexerDatabaseConnectionsHigh
+        expr: indexer_database_connections_active > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High database connection count"
+          description: "Database connections are above threshold ({{ $value }} > 20). Check for connection leaks."
+          runbook_url: "https://github.com/superindexer/indexer/wiki/Runbooks#db-connections-high"
+
+      - alert: IndexerDatabaseConnectionsCritical
+        expr: indexer_database_connections_active > 24
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical database connection count"
+          description: "Database connections near pool limit ({{ $value }} > 24). Risk of connection exhaustion."
+          runbook_url: "https://github.com/superindexer/indexer/wiki/Runbooks#db-connections-critical"
+
+      # Processing error alerts
+      - alert: IndexerProcessingErrorsHigh
+        expr: increase(indexer_processing_errors_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High processing error rate"
+          description: "Processing errors increased by {{ $value }} in the last 5 minutes."
+
+      - alert: IndexerProcessingErrorsCritical
+        expr: increase(indexer_processing_errors_total[5m]) > 50
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical processing error rate"
+          description: "Processing errors increased by {{ $value }} in the last 5 minutes."
+
+      # Indexing job alerts
+      - alert: IndexerJobsStuck
+        expr: indexer_jobs_active > 0 and indexer_jobs_failed_total[1h] > 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Indexing jobs may be stuck"
+          description: "Active jobs exist alongside failed jobs for over 30 minutes. Check worker health."
+
+      - alert: IndexerJobsFailedIncreasing
+        expr: increase(indexer_jobs_failed_total[15m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Increasing indexing job failures"
+          description: "Failed jobs increased by {{ $value }} in the last 15 minutes."
+
+      # NNTP connection alerts
+      - alert: IndexerNNTPConnectionsLow
+        expr: indexer_nntp_connections_active < 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No active NNTP connections"
+          description: "NNTP connections dropped to zero for 10 minutes. Check server availability."
+
+      - alert: IndexerNNTPServersDisabled
+        expr: indexer_nntp_servers_enabled == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "All NNTP servers disabled"
+          description: "No enabled NNTP servers configured. Indexing is paused."
+
+      # Spotnet source alerts
+      - alert: IndexerSpotnetSourcesDisabled
+        expr: indexer_spotnet_sources_enabled == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "All Spotnet sources disabled"
+          description: "No enabled Spotnet sources configured."
+
+      # Worker utilization alerts
+      - alert: IndexerWorkerUtilizationLow
+        expr: indexer_worker_utilization < 0.1
+        for: 30m
+        labels:
+          severity: info
+        annotations:
+          summary: "Low worker utilization"
+          description: "Worker utilization below 10% for 30 minutes. Consider scaling down."
+
+      - alert: IndexerWorkerUtilizationHigh
+        expr: indexer_worker_utilization > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High worker utilization"
+          description: "Worker utilization above 90% for 10 minutes. Consider scaling up."
+
+      # Search latency alerts
+      - alert: IndexerSearchLatencyHigh
+        expr: histogram_quantile(0.95, rate(indexer_search_duration_seconds_bucket[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High search latency"
+          description: "Search p95 latency is {{ $value }}s (threshold: 5s)."
+
+      - alert: IndexerIngestionLatencyHigh
+        expr: histogram_quantile(0.95, rate(indexer_ingestion_duration_seconds_bucket[5m])) > 120
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High ingestion latency"
+          description: "Ingestion p95 latency is {{ $value }}s (threshold: 120s)."

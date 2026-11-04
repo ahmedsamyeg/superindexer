@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"time"
-
-	"github.com/superindexer/indexer/internal/database/models"
 )
 
 // GrafanaDashboardManager handles Grafana dashboard configuration and metrics

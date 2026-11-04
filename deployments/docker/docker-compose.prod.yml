@@ -1,0 +1,231 @@
+# Production Docker Compose configuration
+# Usage: cp .env.production.example .env.production && docker-compose -f docker-compose.prod.yml up -d
+
+version: '3.8'
+
+services:
+  # PostgreSQL database
+  postgres:
+    image: postgres:16-alpine
+    container_name: indexer-postgres-prod
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      POSTGRES_DB: indexer
+      POSTGRES_USER: indexer
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U indexer"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    secrets:
+      - db_password
+    networks:
+      - indexer-network
+
+  # API service
+  api:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    container_name: indexer-api-prod
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env.production
+    environment:
+      - JWT_SECRET_FILE=/run/secrets/jwt_secret
+      - SESSION_SECRET_FILE=/run/secrets/session_secret
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    networks:
+      - indexer-network
+    volumes:
+      - ./api-logs:/app/logs
+
+  # Worker service
+  worker:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    container_name: indexer-worker-prod
+    restart: unless-stopped
+    command: ["/app/indexer-worker"]
+    env_file:
+      - .env.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    networks:
+      - indexer-network
+
+  # Migration service (one-shot)
+  migrate:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    container_name: indexer-migrate-prod
+    restart: "no"
+    command: ["/app/indexer-migrate", "up"]
+    env_file:
+      - .env.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - indexer-network
+
+  # Frontend
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    container_name: indexer-frontend-prod
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    networks:
+      - indexer-network
+
+  # Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: indexer-prometheus-prod
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus-alerting.yml:/etc/prometheus/alerting.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+      - '--rules.alerting-file=/etc/prometheus/alerting.yml'
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    networks:
+      - indexer-network
+
+  # Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: indexer-grafana-prod
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    env_file:
+      - .env.production
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD_FILE=/run/secrets/grafana_password
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/default.json
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    secrets:
+      - grafana_password
+    networks:
+      - indexer-network
+
+volumes:
+  postgres_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  indexer-network:
+    driver: bridge
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+  jwt_secret:
+    file: ./secrets/jwt_secret.txt
+  session_secret:
+    file: ./secrets/session_secret.txt
+  grafana_password:
+    file: ./secrets/grafana_password.txt

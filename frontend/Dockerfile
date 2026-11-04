@@ -12,6 +12,9 @@ RUN npm ci
 # Copy source code
 COPY . .
 
+# Create .env file if not exists
+RUN test -f .env || echo "VITE_API_URL=http://localhost:8080/api/v1" > .env
+
 # Build
 RUN npm run build
 
@@ -22,7 +25,7 @@ FROM nginx:alpine
 COPY --from=builder /app/dist /usr/share/nginx/html
 
 # Copy nginx config
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY nginx/nginx.conf /etc/nginx/conf.d/default.conf
 
 # Expose port
 EXPOSE 80

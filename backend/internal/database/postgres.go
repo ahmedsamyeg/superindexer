@@ -14,15 +14,6 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// Config holds database connection configuration.
-type Config struct {
-	DSN             string
-	MaxOpenConns    int
-	MaxIdleConns    int
-	ConnMaxLifetime time.Duration
-	ConnMaxIdleTime time.Duration
-}
-
 // DB wraps a pgxpool pool with Bun ORM integration.
 type DB struct {
 	pool   *pgxpool.Pool
@@ -135,4 +126,31 @@ func (d *DB) WithTx(ctx context.Context, fn func(context.Context, *bun.Tx) error
 	}
 
 	return tx.Commit()
+}
+
+// PoolStats returns the current pgxpool connection pool statistics.
+func (d *DB) PoolStats() *PoolStats {
+	stats := d.pool.Stat()
+	return &PoolStats{
+		MaxOpenConns:     int(stats.MaxConns()),
+		OpenConnections:  int(stats.TotalConns()),
+		InUse:            int(stats.AcquiredConns()),
+		Idle:             int(stats.IdleConns()),
+		WaitCount:        stats.AcquireCount(),
+		WaitDuration:     stats.AcquireDuration(),
+		MaxIdleClosed:    stats.MaxIdleDestroyCount(),
+		MaxLifetimeClosed: stats.MaxLifetimeDestroyCount(),
+	}
+}
+
+// PoolStats holds connection pool statistics.
+type PoolStats struct {
+	MaxOpenConns      int           `json:"max_open_connections"`
+	OpenConnections   int           `json:"open_connections"`
+	InUse             int           `json:"in_use"`
+	Idle              int           `json:"idle"`
+	WaitCount         int64         `json:"wait_count"`
+	WaitDuration      time.Duration `json:"wait_duration"`
+	MaxIdleClosed     int64         `json:"max_idle_closed"`
+	MaxLifetimeClosed int64         `json:"max_lifetime_closed"`
 }

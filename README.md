@@ -15,8 +15,10 @@ A modern, scalable, self-hosted Usenet and Spotnet indexing platform with Postgr
 - Newsgroup discovery and management
 - Usenet article header ingestion
 - Spotnet source integration and post ingestion
-- PostgreSQL-powered full-text search with relevance ranking
-- Advanced search filters and faceted results
+- Metadata extraction and normalization
+- Duplicate detection
+- PostgreSQL-powered full-text search
+- Advanced search filters and relevance ranking
 - Background indexing workers with concurrent processing
 - User authentication and role-based access control
 - Administrative dashboard
@@ -28,7 +30,7 @@ A modern, scalable, self-hosted Usenet and Spotnet indexing platform with Postgr
 ### Prerequisites
 
 - Docker and Docker Compose
-- Go 1.22+ (for local development)
+- Go 1.26+ (for local development)
 - Node.js 20+ (for frontend development)
 
 ### Docker Compose (Recommended)
@@ -51,205 +53,260 @@ docker compose -f deployments/docker/docker-compose.yml logs -f worker
 docker compose -f deployments/docker/docker-compose.yml down
 ```
 
-**Services:**
-- API: http://localhost:8080
-- Frontend: http://localhost:3000
-- Prometheus: http://localhost:9090
-- Grafana: http://localhost:3001 (admin/admin)
-
-### Local Development
-
-#### Backend
+### Local Development (Backend)
 
 ```bash
-cd backend
+# Clone the repository
+git clone https://github.com/superindexer/indexer.git
+cd indexer
 
-# Install dependencies
-go mod tidy
+# Install Go dependencies
+cd backend && go mod tidy
+
+# Run database migrations locally (requires PostgreSQL)
+# First ensure PostgreSQL is running:
+# docker run -d --name postgres-indexer -e POSTGRES_PASSWORD=indexer -p 5432:5432 postgres:16
 
 # Run migrations
-go run cmd/migrate/main.go up
+cd backend && go run cmd/migrate/main.go -database "postgres://indexer:indexer@localhost:5432/indexer?sslmode=disable" -path ./internal/database/migrations up
 
 # Start API server
 go run cmd/api/main.go
-
-# Start worker
-go run cmd/worker/main.go
 ```
 
-#### Frontend
+### Local Development (Frontend)
 
 ```bash
-cd frontend
-
-# Install dependencies
-npm install
+# Install Node dependencies
+cd frontend && npm install
 
 # Start development server
 npm run dev
+
+# Build for production
+npm run build
+```
+
+### Configuration
+
+The application uses environment variables for configuration. Create a `.env` file:
+
+```bash
+# Database configuration  
+DATABASE_DSN=postgres://indexer:indexer@localhost:5432/indexer?sslmode=disable
+DB_MAX_OPEN_CONNS=25
+DB_MAX_IDLE_CONNS=5
+DB_CONN_MAX_LIFETIME=5m
+DB_CONN_MAX_IDLE_TIME=2m
+
+# Server configuration
+SERVER_HOST=0.0.0.0
+SERVER_PORT=8080
+SERVER_READ_TIMEOUT=15s
+SERVER_WRITE_TIMEOUT=15s
+
+# Authentication configuration
+JWT_SECRET=change-me-in-production
+JWT_EXPIRY=24h
+SESSION_SECRET=change-me-in-production
+SESSION_EXPIRY=7d
+
+# NNTP configuration
+NNTP_DEFAULT_MAX_CONNECTIONS=10
+NNTP_DEFAULT_TIMEOUT=30s
+NNTP_DEFAULT_RETRY_ATTEMPTS=3
+NNTP_DEFAULT_RETRY_DELAY=2s
+
+# Spotnet configuration  
+SPOTNET_DEFAULT_TIMEOUT=30s
+SPOTNET_DEFAULT_RETRY_ATTEMPTS=3
+SPOTNET_DEFAULT_RETRY_DELAY=2s
+
+# Observability configuration
+PROMETHEUS_ENABLED=true
+OTEL_ENABLED=false
+LOG_LEVEL=info
+LOG_FORMAT=json
 ```
 
 ## Project Structure
 
 ```
 .
-├── backend/
-│   ├── cmd/
-│   │   ├── api/           # API service entry point
-│   │   ├── worker/        # Worker service entry point
-│   │   └── migrate/       # Migration tool entry point
-│   ├── internal/
-│   │   ├── config/        # Configuration
-│   │   ├── database/
-│   │   │   ├── migrations/ # SQL migrations
-│   │   │   ├── models/    # Bun ORM models
-│   │   │   └── repositories/ # Data access layer
-│   │   ├── http/
-│   │   │   ├── handlers/  # HTTP handlers
-│   │   │   └── middleware/ # HTTP middleware
-│   │   ├── auth/          # Authentication
-│   │   ├── usenet/        # NNTP integration
-│   │   ├── spotnet/       # Spotnet integration
-│   │   ├── indexing/      # Indexing engine
-│   │   ├── search/        # Search service
-│   │   └── observability/ # Metrics and tracing
-│   └── pkg/               # Shared packages
-├── frontend/
-│   ├── src/
-│   │   ├── components/    # React components
-│   │   ├── pages/         # Page components
-│   │   ├── hooks/         # Custom React hooks
-│   │   ├── lib/           # Utilities
-│   │   └── services/      # API client
-│   └── nginx/             # Production nginx config
-├── deployments/
-│   ├── docker/
-│   │   ├── docker-compose.yml
-│   │   ├── prometheus.yml
-│   │   └── grafana/
-│   └── kubernetes/
-│       ├── base/
-│       └── overlays/
-└── .github/
-    └── workflows/
-        └── ci.yml
+├── backend/                 # Go backend services
+│   ├── cmd/                 # Application entry points
+│   │   ├── api/             # API server
+│   │   ├── worker/          # Background worker  
+│   │   └── migrate/         # Database migrations
+│   ├── internal/            # Internal packages
+│   │   ├── config/          # Configuration management
+│   │   ├── database/        # Database integration and migrations
+│   │   ├── http/            # HTTP API and handlers
+│   │   └── auth/            # Authentication services
+│   └── go.mod               # Go module dependencies
+├── frontend/                # React frontend application
+│   ├── src/                 # Source code
+│   └── package.json         # Frontend dependencies
+├── deployments/             # Deployment configurations  
+│   ├── docker/              # Docker Compose setup
+│   └── kubernetes/          # Kubernetes manifests
+└── docs/                    # Documentation
+```
+
+## Development Setup
+
+### Backend Development
+
+1. **Database Setup**:
+```bash
+# Start PostgreSQL locally (or use Docker)
+docker run -d --name postgres-indexer -e POSTGRES_PASSWORD=indexer -p 5432:5432 postgres:16
+```
+
+2. **Run Migrations**:
+```bash
+# Run database migrations  
+cd backend && go run cmd/migrate/main.go -database "postgres://indexer:indexer@localhost:5432/indexer?sslmode=disable" -path ./internal/database/migrations up
+```
+
+3. **Start API Server**:
+```bash
+cd backend && go run cmd/api/main.go
+```
+
+### Frontend Development
+
+1. **Install Dependencies**:
+```bash
+cd frontend && npm install
+```
+
+2. **Start Development Server**:
+```bash
+cd frontend && npm run dev
+```
+
+### Testing
+
+1. **Run Backend Tests**:
+```bash
+cd backend && go test ./...
+```
+
+2. **Run Frontend Tests**:
+```bash
+cd frontend && npm run test
 ```
 
 ## API Endpoints
 
-### Authentication
-- `POST /api/v1/auth/login` - User login
-- `POST /api/v1/auth/register` - User registration
-- `POST /api/v1/auth/logout` - User logout
-- `GET /api/v1/auth/me` - Get current user
+### Authentication (`/api/v1/auth`)
 
-### Search
-- `GET /api/v1/search?q=term` - Full-text search
-- `GET /api/v1/search/articles?q=term` - Search articles
-- `GET /api/v1/search/spotnet?q=term` - Search Spotnet posts
-- `GET /api/v1/search/facets?q=term` - Get search facets
+- `POST /login` - Authenticate and return JWT token
+- `POST /register` - Register new user account  
+- `POST /logout` - Logout (client-side token removal)
+- `POST /password/reset` - Request password reset
+- `POST /password/reset/confirm` - Confirm password reset
 
-### NNTP Servers
-- `GET /api/v1/servers` - List servers
-- `POST /api/v1/servers` - Create server
-- `PUT /api/v1/servers/:id` - Update server
-- `DELETE /api/v1/servers/:id` - Delete server
-- `POST /api/v1/servers/:id/test` - Test connection
+### Users (`/api/v1/users`)
 
-### Newsgroups
-- `GET /api/v1/groups` - List newsgroups
-- `GET /api/v1/groups/:id` - Get newsgroup
-- `POST /api/v1/groups` - Create newsgroup
-- `PUT /api/v1/groups/:id` - Update newsgroup
-- `DELETE /api/v1/groups/:id` - Delete newsgroup
-- `GET /api/v1/groups/:id/discover` - Discover groups
-- `POST /api/v1/groups/:id/index` - Manual index
+- `GET /` - List all users (admin only)
+- `GET /:id` - Get user by ID (admin only)  
+- `POST /` - Create new user (admin only)
+- `PUT /:id` - Update user (admin only)
+- `DELETE /:id` - Delete user (admin only)
+- `POST /:id/toggle-active` - Toggle user active status (admin only)
 
-### Categories
-- `GET /api/v1/categories` - List categories
-- `POST /api/v1/categories` - Create category
-- `PUT /api/v1/categories/:id` - Update category
-- `DELETE /api/v1/categories/:id` - Delete category
+### Search (`/api/v1/search`)
 
-### Indexing Jobs
-- `GET /api/v1/indexing/jobs` - List jobs
-- `POST /api/v1/indexing/jobs` - Create job
-- `POST /api/v1/indexing/jobs/:id/pause` - Pause job
-- `POST /api/v1/indexing/jobs/:id/resume` - Resume job
-- `POST /api/v1/indexing/jobs/:id/retry` - Retry job
-- `DELETE /api/v1/indexing/jobs/:id` - Cancel job
+- `GET /` - Search articles and posts with filters
+- `GET /categories` - Get search categories
 
-### Admin
-- `GET /api/v1/admin/dashboard` - Dashboard stats
-- `GET /api/v1/admin/stats` - System statistics
-- `GET /api/v1/admin/system` - System info
-- `GET /api/v1/admin/db/stats` - Database stats
+### NNTP Servers (`/api/v1/servers`)
 
-## Database Schema
+- `GET /` - List all configured NNTP servers
+- `GET /:id` - Get server by ID
+- `POST /` - Create new NNTP server  
+- `PUT /:id` - Update server configuration
+- `DELETE /:id` - Delete server
 
-The application uses PostgreSQL with the following core tables:
+### Newsgroups (`/api/v1/groups`)
 
-- `users` - User accounts
-- `nntp_servers` - NNTP server configurations
-- `newsgroups` - Usenet newsgroups
-- `articles` - Indexed Usenet articles
-- `spotnet_sources` - Spotnet source configurations
-- `spotnet_posts` - Indexed Spotnet posts
-- `categories` - Content categories
-- `indexing_jobs` - Background indexing jobs
-- `indexing_checkpoints` - Processing checkpoints
-- `user_search_history` - User search history
-- `bookmarks` - User bookmarks
-- `system_settings` - System configuration
+- `GET /` - List all newsgroups
+- `GET /:id` - Get newsgroup by ID
+- `POST /` - Create new newsgroup (admin only)
+- `PUT /:id` - Update newsgroup (admin only)
+- `DELETE /:id` - Delete newsgroup (admin only)
 
-## Search
+### Spotnet Sources (`/api/v1/spotnet/sources`)
 
-The search engine uses PostgreSQL native Full-Text Search with:
+- `GET /` - List all configured Spotnet sources
+- `GET /:id` - Get source by ID  
+- `POST /` - Create new Spotnet source
+- `PUT /:id` - Update source configuration
+- `DELETE /:id` - Delete source
 
-- `tsvector` / `tsquery` for text search
-- `websearch_to_tsquery` for natural language queries
-- `ts_rank_cd` for relevance ranking
-- GIN indexes for fast searching
-- `unaccent` extension for accent-insensitive search
+### Indexing Jobs (`/api/v1/indexing/jobs`)
 
-### Search Weights
+- `GET /` - List all indexing jobs
+- `GET /:id` - Get job by ID  
+- `POST /` - Create new indexing job
+- `PUT /:id/retry` - Retry failed job
+- `PUT /:id/cancel` - Cancel pending job
 
-| Field | Weight |
-|-------|--------|
-| Title | A (highest) |
-| Category | B |
-| Description | C |
-| Additional metadata | D (lowest) |
+## Monitoring and Metrics
 
-## Kubernetes Deployment
+The application exposes Prometheus metrics:
 
-```bash
-# Development
-kubectl apply -k deployments/kubernetes/overlays/development
+- `/metrics` - Prometheus metrics endpoint
+- `indexer_api_requests_total` - API request counters  
+- `indexer_search_duration_seconds` - Search query duration
+- `indexer_database_connections_active` - Active database connections
 
-# Production
-kubectl apply -k deployments/kubernetes/overlays/production
-```
+## Security Considerations
 
-## Development Phases
+### Authentication and Authorization
+- JWT tokens for stateless session management  
+- Password hashing with Argon2id
+- Role-based access control (admin, user roles)
+- Secure session management
 
-| Phase | Status | Description |
-|-------|--------|-------------|
-| 0 | In Progress | Architecture and Project Foundation |
-| 1 | Pending | Database Foundation |
-| 2 | Pending | Backend API Foundation |
-| 3 | Pending | Authentication and Authorization |
-| 4 | Pending | Usenet Integration |
-| 5 | Pending | Spotnet Integration |
-| 6 | Pending | Metadata and Indexing Engine |
-| 7 | Pending | PostgreSQL Search Engine |
-| 8 | Pending | Frontend Foundation |
-| 9 | Pending | Search and Discovery Interface |
-| 10 | Pending | Administration Interface |
-| 11 | Pending | Docker and Kubernetes |
-| 12 | Pending | Observability and Performance |
-| 13 | Pending | Security, Hardening and Release |
+### Database Security
+- Environment-specific database connection strings
+- Proper parameterized queries to prevent SQL injection
+- Database schema with proper constraints and validation
+
+### Deployment Security
+- HTTPS support (when configured)
+- API rate limiting (basic implementation)
+- Secure header configuration
+
+## Troubleshooting
+
+### Database Connection Issues
+1. **Check PostgreSQL is running**: `docker ps | grep postgres`
+2. **Verify connection string**: Ensure DATABASE_DSN is correct
+3. **Check database permissions**: User should have proper access rights
+
+### API Server Issues
+1. **Port conflicts**: Check if port 8080 is in use
+2. **Missing environment variables**: Ensure all required env vars are set
+3. **Database migrations**: Run `go run cmd/migrate/main.go` if migrations failed
+
+### Frontend Issues
+1. **Node.js version**: Ensure Node.js 20+ is installed
+2. **Dependencies**: Run `npm install` in frontend directory
+3. **API connectivity**: Ensure backend is running at correct URL
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch  
+3. Make your changes
+4. Write tests for new functionality
+5. Update documentation as needed
+6. Submit a pull request
 
 ## License
 
-MIT
+This project is licensed under the MIT License - see the LICENSE file for details.

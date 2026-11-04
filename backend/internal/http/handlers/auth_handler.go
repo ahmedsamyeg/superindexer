@@ -1,19 +1,27 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
-	"time"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	"github.com/superindexer/indexer/internal/auth"
+	"github.com/superindexer/indexer/internal/database/repositories"
+	"github.com/superindexer/indexer/internal/http/middleware"
 	"github.com/superindexer/indexer/internal/http/service"
 	"github.com/superindexer/indexer/internal/http/validator"
+	"github.com/uptrace/bun"
 )
 
 // AuthHandler handles authentication endpoints.
 type AuthHandler struct {
-	AuthService *service.AuthService
-	Log         interface{}
+	AuthService    service.AuthServiceInterface
+	DB             *bun.DB
+	Log            interface{}
+	JWTSecret      string
+	RefreshTokens  *service.RefreshTokenService
+	TokenBlacklist *service.TokenBlacklistService
 }
 
 // LoginRequest represents a login request body.
@@ -38,6 +46,18 @@ type PasswordResetRequest struct {
 type PasswordResetConfirmRequest struct {
 	Token    string `json:"token" validate:"required"`
 	Password string `json:"password" validate:"required,min=8"`
+}
+
+// RefreshTokenRequest represents a token refresh request body.
+type RefreshTokenRequest struct {
+	RefreshToken string `json:"refresh_token" validate:"required"`
+}
+
+// RefreshTokenResponse represents a token refresh response.
+type RefreshTokenResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresAt    int64  `json:"expires_at"`
 }
 
 // LoginResponse represents a login response.
@@ -100,9 +120,31 @@ func (h *AuthHandler) Register(c echo.Context) error {
 	})
 }
 
-// Logout handles user logout.
+// Logout handles user logout and token revocation.
 func (h *AuthHandler) Logout(c echo.Context) error {
-	// JWT tokens are stateless, so logout is handled by client-side token removal
+	authHeader := c.Request().Header.Get("Authorization")
+	if authHeader != "" {
+		parts := strings.Split(authHeader, " ")
+		if len(parts) == 2 && parts[0] == "Bearer" {
+			tokenString := parts[1]
+			claims, err := auth.ValidateToken(tokenString, auth.JWTConfig{
+				Secret: []byte(h.JWTSecret),
+				Issuer: "superindexer",
+				Expiry: 3600,
+			})
+			if err == nil {
+				// Blacklist the token
+				tokenHash := fmt.Sprintf("%d-%d", claims.UserID, claims.ExpiresAt.Unix())
+				_ = h.TokenBlacklist.BlacklistToken(c.Request().Context(), tokenHash, claims.UserID, claims.ExpiresAt.Time)
+			}
+		}
+	}
+
+	// Also revoke refresh token if provided
+	if refreshToken := c.QueryParam("refresh_token"); refreshToken != "" {
+		_ = h.RefreshTokens.RevokeRefreshToken(c.Request().Context(), refreshToken)
+	}
+
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"message": "logged out successfully",
 	})
@@ -110,19 +152,25 @@ func (h *AuthHandler) Logout(c echo.Context) error {
 
 // GetMe handles getting the current user's profile.
 func (h *AuthHandler) GetMe(c echo.Context) error {
-	userID, role, username, ok := auth.ExtractUserFromContext(c.Request().Context())
+	userID, ok := middleware.GetUserID(c.Request().Context())
 	if !ok {
 		return echo.NewHTTPError(http.StatusUnauthorized, "unauthorized")
 	}
 
-	// In a real implementation, we would fetch the user from DB
-	// For now, we'll return placeholder data based on context
+	// Fetch the user from the database
+	userRepo := repositories.NewUserRepository(h.DB)
+	user, err := userRepo.GetByID(c.Request().Context(), userID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "user not found")
+	}
+
+	// Don't expose the password hash
 	return c.JSON(http.StatusOK, UserResponse{
-		ID:       userID,
-		Username: username,
-		Email:    username + "@localhost", // Placeholder
-		Role:     role,
-		IsActive: true, // Placeholder
+		ID:       user.ID,
+		Username: user.Username,
+		Email:    user.Email,
+		Role:     user.Role,
+		IsActive: user.IsActive,
 	})
 }
 
@@ -157,7 +205,32 @@ func (h *AuthHandler) ConfirmPasswordReset(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
+	// Revoke all refresh tokens for this user (they should re-authenticate)
+	userID, ok := middleware.GetUserID(c.Request().Context())
+	if ok {
+		_ = h.RefreshTokens.RevokeAllUserTokens(c.Request().Context(), userID)
+	}
+
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"message": "password reset successfully",
+	})
+}
+
+// Refresh handles token refresh using a refresh token.
+func (h *AuthHandler) Refresh(c echo.Context) error {
+	var req RefreshTokenRequest
+	if err := validator.BindAndValidate(c, &req); err != nil {
+		return err
+	}
+
+	pair, err := h.RefreshTokens.RefreshAccessKey(c.Request().Context(), req.RefreshToken)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusUnauthorized, "invalid refresh token")
+	}
+
+	return c.JSON(http.StatusOK, RefreshTokenResponse{
+		AccessToken:  pair.AccessToken,
+		RefreshToken: pair.RefreshToken,
+		ExpiresAt:    pair.ExpiresAt,
 	})
 }

@@ -12,7 +12,7 @@ import (
 // UserHandler handles user management endpoints.
 type UserHandler struct {
 	Log         interface{}
-	UserService *service.UserService
+	UserService service.UserServiceInterface
 }
 
 // CreateUserRequest represents a user creation request.

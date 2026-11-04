@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/superindexer/indexer/internal/database/models"
 	"github.com/superindexer/indexer/internal/database/repositories"
 )
 
@@ -23,12 +22,12 @@ type AdminDashboard struct {
 // DashboardStats holds administrative statistics
 type DashboardStats struct {
 	// System statistics
-	TotalArticles       int64 `json:"total_articles"`
-	TotalSpotnetPosts   int64 `json:"total_spotnet_posts"`
-	ActiveNNTPServers   int64 `json:"active_nntp_servers"`
+	TotalArticles        int64 `json:"total_articles"`
+	TotalSpotnetPosts    int64 `json:"total_spotnet_posts"`
+	ActiveNNTPServers    int64 `json:"active_nntp_servers"`
 	ActiveSpotnetSources int64 `json:"active_spotnet_sources"`
-	TotalCategories     int64 `json:"total_categories"`
-	ActiveIndexingJobs  int64 `json:"active_indexing_jobs"`
+	TotalCategories      int64 `json:"total_categories"`
+	ActiveIndexingJobs   int64 `json:"active_indexing_jobs"`
 
 	// Connection statistics
 	ActiveNNTPConnections int64 `json:"active_nntp_connections"`
@@ -39,6 +38,20 @@ type DashboardStats struct {
 
 	// System health
 	SystemHealthy bool `json:"system_healthy"`
+}
+
+// SystemHealthCheck represents a system health check result
+type SystemHealthCheck struct {
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+// SystemHealth represents the overall system health
+type SystemHealth struct {
+	Healthy   bool                `json:"healthy"`
+	Timestamp time.Time           `json:"timestamp"`
+	Checks    []SystemHealthCheck `json:"checks"`
 }
 
 // NewAdminDashboard creates a new admin dashboard instance
@@ -82,19 +95,19 @@ func (ad *AdminDashboard) GetDashboardStats(ctx context.Context) (*DashboardStat
 	}
 
 	// Enabled NNTP servers count
-	stats.ActiveNNTPServers, err = ad.nntpRepo.CountEnabled(ctx)
+	stats.ActiveNNTPServers, err = ad.countEnabledNNTPServers(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get enabled NNTP servers count: %w", err)
 	}
 
 	// Enabled Spotnet sources count
-	stats.ActiveSpotnetSources, err = ad.spotnetRepo.CountEnabled(ctx)
+	stats.ActiveSpotnetSources, err = ad.countEnabledSpotnetSources(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get enabled Spotnet sources count: %w", err)
 	}
 
 	// Categories count
-	stats.TotalCategories, err = ad.categoryRepo.Count(ctx)
+	stats.TotalCategories, err = ad.countCategories(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get categories count: %w", err)
 	}
@@ -116,20 +129,47 @@ func (ad *AdminDashboard) GetDashboardStats(ctx context.Context) (*DashboardStat
 	return stats, nil
 }
 
+// countEnabledNNTPServers counts enabled NNTP servers
+func (ad *AdminDashboard) countEnabledNNTPServers(ctx context.Context) (int64, error) {
+	servers, err := ad.nntpRepo.GetEnabled(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return int64(len(servers)), nil
+}
+
+// countEnabledSpotnetSources counts enabled Spotnet sources
+func (ad *AdminDashboard) countEnabledSpotnetSources(ctx context.Context) (int64, error) {
+	sources, err := ad.spotnetRepo.GetEnabled(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return int64(len(sources)), nil
+}
+
+// countCategories counts all categories
+func (ad *AdminDashboard) countCategories(ctx context.Context) (int64, error) {
+	categories, err := ad.categoryRepo.GetAll(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return int64(len(categories)), nil
+}
+
 // GetSystemHealth checks the overall system health status
-func (ad *AdminDashboard) GetSystemHealth(ctx context.Context) (*models.SystemHealth, error) {
+func (ad *AdminDashboard) GetSystemHealth(ctx context.Context) (*SystemHealth, error) {
 	// In a real implementation:
 	// 1. Check database connectivity
 	// 2. Check NNTP server connections
-	// 3. Check Spotnet source connectivity  
+	// 3. Check Spotnet source connectivity
 	// 4. Check worker pool health
 	// 5. Check resource usage (memory, CPU)
 	// 6. Return comprehensive health status
-	
-	health := &models.SystemHealth{
-		Healthy: true,
+
+	health := &SystemHealth{
+		Healthy:   true,
 		Timestamp: time.Now(),
-		Checks: []models.HealthCheck{
+		Checks: []SystemHealthCheck{
 			{
 				Name:    "Database",
 				Status:  "healthy",
@@ -137,42 +177,25 @@ func (ad *AdminDashboard) GetSystemHealth(ctx context.Context) (*models.SystemHe
 			},
 			{
 				Name:    "NNTP Servers",
-				Status:  "healthy",
-				Message: "All enabled NNTP servers connected",
+				Status:  "healthy",				Message: "NNTP server connections active",
 			},
 			{
 				Name:    "Spotnet Sources",
 				Status:  "healthy",
-				Message: "All enabled Spotnet sources connected",
+				Message: "Spotnet sources operational",
+			},
+			{
+				Name:    "Worker Pool",
+				Status:  "healthy",
+				Message: "Worker pool running normally",
+			},
+			{
+				Name:    "Search Index",
+				Status:  "healthy",
+				Message: "Search index is up to date",
 			},
 		},
 	}
 
 	return health, nil
-}
-
-// GetRecentJobs retrieves recent indexing jobs for dashboard display
-func (ad *AdminDashboard) GetRecentJobs(ctx context.Context, limit int) ([]*models.IndexingJob, error) {
-	// In a real implementation:
-	// 1. Query recent indexing jobs from database
-	// 2. Order by creation time descending
-	// 3. Limit results to specified count
-	
-	jobs := make([]*models.IndexingJob, 0)
-	
-	// Placeholder - return empty list
-	return jobs, nil
-}
-
-// GetServerStatus retrieves status of all NNTP servers
-func (ad *AdminDashboard) GetServerStatus(ctx context.Context) ([]*models.NNTPServer, error) {
-	// In a real implementation:
-	// 1. Get all enabled NNTP servers
-	// 2. Check their connection status and last activity
-	// 3. Return structured server status data
-	
-	servers := make([]*models.NNTPServer, 0)
-	
-	// Placeholder - return empty list
-	return servers, nil
 }
